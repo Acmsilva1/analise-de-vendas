@@ -1,0 +1,54 @@
+name: Dashboard de Vendas - Automação Diária
+
+# 1. QUANDO RODAR
+on:
+  # Agendamento: Roda todos os dias à 00:00 UTC (ajuste o cron se precisar de outro horário)
+  schedule:
+    - cron: '0 0 * * *'
+  # Permite que você execute manualmente clicando em "Run workflow" no GitHub
+  workflow_dispatch:
+
+# 2. O QUE FAZER
+jobs:
+  run_analysis:
+    # Rodar no sistema operacional Ubuntu (padrão Linux)
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 2.1. Baixar o código do seu repositório
+      - name: ⬇️ Checkout do Código
+        uses: actions/checkout@v4
+        # Para que o commit automático funcione, você precisa de um token de permissão
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      # 2.2. Configurar o ambiente Python
+      - name: 🐍 Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          
+      # 2.3. Instalar as dependências do seu script (gspread é novo!)
+      - name: ⚙️ Instalar Dependências
+        run: |
+          pip install pandas plotly gspread
+          
+      # 2.4. Executar o Script Python
+      - name: 🏃 Rodar Análise de Vendas
+        # O Secret é passado aqui, onde o script Python o lerá via os.environ.get()
+        env:
+          GCP_SA_CREDENTIALS: ${{ secrets.GCP_SA_CREDENTIALS }}
+        run: python analise_vendas_automacao.py
+        
+      # 2.5. Commit e Push do novo dashboard HTML
+      - name: 💾 Commit do Dashboard Atualizado
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'ci: 📈 Dashboard de vendas atualizado via automação'
+          # Diz ao Git para versionar apenas o arquivo HTML gerado
+          files: 'dashboard_vendas_final.html'
+          # Se o arquivo não mudou, não faz o commit
+          skip_dirty_check: false
+          
+      - name: ✅ Sucesso!
+        run: echo "Análise e commit finalizados!"
