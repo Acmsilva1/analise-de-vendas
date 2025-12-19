@@ -36,9 +36,9 @@ jobs:
       # Usa uma variável de ambiente intermediária para injetar o JSON limpo no arquivo
       - name: Criar Arquivo de Credenciais
         run: |
-          echo "$JSON_CREDS" > credenciais.json
+          # Usa 'echo' para obter o valor, 'tr -d' para remover quebras de linha (\n) e retornos de carro (\r), e salva no arquivo.
+          echo "$JSON_CREDS" | tr -d '\n\r' > credenciais.json
         env:
-          # Carrega o Secret na variável de ambiente.
           JSON_CREDS: ${{ secrets.GOOGLE_CREDENTIALS }}
         
       # 🚀 EXECUÇÃO DO SCRIPT DE ANÁLISE HISTÓRICA
