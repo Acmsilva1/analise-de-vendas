@@ -1,27 +1,39 @@
-name: Consolidacao Mensal
+name: Backup Mensal de Vendas (Consolidação)
 
 on:
-  schedule:
-    - cron: '0 0 1 * *' # Exemplo: Roda todo dia 1 de cada mês à meia-noite
+  # Gatilho manual: Mantém o modo ativo para você testar quando quiser.
   workflow_dispatch:
+
+  # Gatilho agendado: Roda todo dia 1, à 00:01 (Hora UTC).
+  # Lembre-se que a hora é UTC, então ajuste para o seu fuso (-3h para Brasília/Vitória).
+  # 1 0 1 * * = Minuto 1, Hora 0 (meia-noite), Dia 1 do mês, Qualquer Mês, Qualquer Dia da Semana.
+  schedule:
+    - cron: '1 0 1 * *' 
 
 jobs:
   run_consolidation:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
+      - name: 1. Checkout do Repositório
+        # Este passo é o que estava faltando/falhando no segundo erro.
+        # Ele garante que o seu script esteja disponível no ambiente de execução.
+        uses: actions/checkout@v4
+
+      - name: 2. Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
-      - name: Install dependencies
+      - name: 3. Instalar Dependências (gspread)
         run: |
           python -m pip install --upgrade pip
           pip install gspread
 
-      - name: Run Consolidation Script
-        run: python backup_mensal.py # Mude o nome do arquivo se for diferente
+      - name: 4. Executar o Script de Consolidação
+        # Aqui corrigimos para o nome exato: consolidacao_mensal.py
+        run: python consolidacao_mensal.py
         env:
-          # 🚨 Adicione a linha 'env' para expor o Secret ao script!
+          # A MAGIA DA SEGURANÇA!
+          # Esta variável de ambiente passa o conteúdo do seu Secret JSON
+          # diretamente para o script Python, resolvendo o 'FileNotFoundError' do credenciais.json.
           GSPREAD_SERVICE_ACCOUNT_CREDENTIALS: ${{ secrets.GSPREAD_SERVICE_ACCOUNT_CREDENTIALS }}
