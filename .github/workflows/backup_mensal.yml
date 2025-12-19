@@ -1,39 +1,27 @@
-name: Consolidação Mensal de Dados
+name: Consolidacao Mensal
 
-# 1. QUANDO RODAR (GATILHO)
 on:
   schedule:
-    # Roda no primeiro dia de cada mês, à 00:00 (meia-noite) UTC.
-    - cron: '0 0 1 * *' 
-  
+    - cron: '0 0 1 * *' # Exemplo: Roda todo dia 1 de cada mês à meia-noite
   workflow_dispatch:
 
-# 2. OS TRABALHOS (JOB)
 jobs:
-  run_monthly_consolidation:
+  run_consolidation:
     runs-on: ubuntu-latest
-
     steps:
-      - name: 📦 Checkout Código
-        uses: actions/checkout@v4
-
-      # 🐍 Configuração do ambiente Python e Instalação de dependências
-      - name: Set up Python e Instalar Dependências
+      - uses: actions/checkout@v4
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x' 
-      
-      - name: Instalar gspread e Outras Bibliotecas
-        # É fundamental que gspread esteja neste arquivo!
-        run: pip install -r requirements.txt
+          python-version: '3.x'
 
-      # 🔐 PASSO 3: CRIA O ARQUIVO DE CREDENCIAIS
-      - name: Criar Arquivo de Credenciais
-        # Nota: O conteúdo do seu Secret é a string JSON.
-        # O 'echo' escreve essa string no arquivo 'credenciais.json' no servidor.
-        run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > credenciais.json
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install gspread
 
-      # 🚀 EXECUÇÃO DO SCRIPT DE CONSOLIDAÇÃO MENSAL
-      - name: Executar Consolidação Mensal
-        # O script consolidacao_mensal.py agora procurará por 'credenciais.json'
-        run: python consolidacao_mensal.py
+      - name: Run Consolidation Script
+        run: python backup_mensal.py # Mude o nome do arquivo se for diferente
+        env:
+          # 🚨 Adicione a linha 'env' para expor o Secret ao script!
+          GSPREAD_SERVICE_ACCOUNT_CREDENTIALS: ${{ secrets.GSPREAD_SERVICE_ACCOUNT_CREDENTIALS }}
