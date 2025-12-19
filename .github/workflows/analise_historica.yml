@@ -32,14 +32,11 @@ jobs:
       - name: Instalar gspread e PANDAS (requirements.txt)
         run: pip install -r requirements.txt
 
-      # 🔐 CRIA O ARQUIVO DE CREDENCIAIS (FIX JSON ERROR)
-      # Usa uma variável de ambiente intermediária para injetar o JSON limpo no arquivo
+      # 🔐 CRIA O ARQUIVO DE CREDENCIAIS (INJEÇÃO DIRETA COM ASPAS DUPLAS)
       - name: Criar Arquivo de Credenciais
-        run: |
-          # Usa 'echo' para obter o valor, 'tr -d' para remover quebras de linha (\n) e retornos de carro (\r), e salva no arquivo.
-          echo "$JSON_CREDS" | tr -d '\n\r' > credenciais.json
-        env:
-          JSON_CREDS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        # Removemos a variável ENV e passamos o Secret diretamente.
+        # As aspas duplas ("") garantem a correta expansão no shell.
+        run: echo "${{ secrets.GOOGLE_CREDENTIALS }}" > credenciais.json
         
       # 🚀 EXECUÇÃO DO SCRIPT DE ANÁLISE HISTÓRICA
       - name: Executar Análise Histórica e Gerar HTML
@@ -50,5 +47,4 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "Feat: Dashboard Histórico e Tendências atualizado (Mensal)"
-          # Parâmetro corrigido para o nome do arquivo
           file_pattern: dashboard_historico.html
