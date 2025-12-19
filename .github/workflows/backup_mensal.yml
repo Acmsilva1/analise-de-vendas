@@ -1,10 +1,10 @@
 name: Backup Mensal de Vendas (Consolidação)
 
 on:
-  # Gatilho manual: Mantém o modo ativo para testes imediatos.
+  # 1. Gatilho Manual: Permite que você clique em "Run workflow" para testar.
   workflow_dispatch:
 
-  # Gatilho agendado: Roda todo dia 1, à 00:01 (Hora UTC).
+  # 2. Gatilho Agendado: Roda todo dia 1, à 00:01 (Hora UTC).
   schedule:
     - cron: '1 0 1 * *' 
 
@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 1. Checkout do Repositório (Baixa o código)
+        # Necessário para que o ambiente de execução encontre o script.
         uses: actions/checkout@v4
 
       - name: 2. Configurar Python
@@ -26,10 +27,10 @@ jobs:
           pip install gspread
 
       - name: 4. Executar o Script de Consolidação
-        # Nome do arquivo de script corrigido:
+        # Nome do arquivo de script: consolidacao_mensal.py
         run: python consolidacao_mensal.py
         env:
-          # CORREÇÃO CRÍTICA AQUI:
-          # O script Python espera "GSPREAD_SERVICE_ACCOUNT_CREDENTIALS" (à esquerda),
-          # mas o valor é pego do Secret REAL no GitHub: "GCP_SA_CREDENTIALS" (à direita).
+          # Mapeamento do Secret:
+          # Esquerda (GSPREAD_SERVICE_ACCOUNT_CREDENTIALS) é o que o script Python espera.
+          # Direita (${{ secrets.GCP_SA_CREDENTIALS }}) é o nome do Secret no GitHub.
           GSPREAD_SERVICE_ACCOUNT_CREDENTIALS: ${{ secrets.GCP_SA_CREDENTIALS }}
