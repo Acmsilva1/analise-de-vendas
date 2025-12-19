@@ -7,7 +7,6 @@ on:
     - cron: '0 5 1 * *' 
   
   # Opção 2: Execução Manual
-  # Permite que você acione o workflow manualmente pela interface do GitHub Actions
   workflow_dispatch:
     inputs:
       motivo:
@@ -26,22 +25,22 @@ jobs:
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10' # Mantenha a versão que você usa
+          python-version: '3.10'
 
       - name: Instalar Dependências
         run: |
-          pip install pandas gspread json # Garante que todas as libs estejam instaladas
+          # CORREÇÃO: Removido 'json' pois é um módulo nativo do Python!
+          pip install pandas gspread
 
       - name: Executar o Agente Histórico
-        # Injeção do Secret, garantindo a autenticação (Consistência com Agente Diário)
+        # Injeção do Secret, garantindo a autenticação
         env:
           GCP_SA_CREDENTIALS: ${{ secrets.GCP_SA_CREDENTIALS }}
         run: |
           python analise_historica.py
 
       - name: Commit e Push do Dashboard
-        # Este passo é crucial para que o novo HTML vá para o GitHub Pages
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "Atualização automática do Dashboard Histórico (Dia 1 do mês)"
-          files: dashboard_historico.html # O arquivo que o agente Python gera
+          files: dashboard_historico.html
