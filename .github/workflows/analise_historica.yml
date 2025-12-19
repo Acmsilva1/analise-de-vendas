@@ -1,0 +1,49 @@
+name: Geração de Dashboard Histórico Mensal
+
+# 1. QUANDO RODAR (GATILHO)
+on:
+  schedule:
+    # Roda no primeiro dia de cada mês, às 03:00 UTC.
+    # Isso é 00:00 (meia-noite) no horário de Brasília, garantindo que rode
+    # logo após a conclusão do backup mensal (que roda às 00:00 UTC).
+    - cron: '0 3 1 * *' 
+  
+  # Permite que você o acione manualmente para testes
+  workflow_dispatch:
+
+# 2. OS TRABALHOS (JOB)
+jobs:
+  run_monthly_historical_analysis:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📦 Checkout Código
+        uses: actions/checkout@v4
+
+      # 🐍 Configuração do ambiente Python e Instalação de dependências
+      - name: Set up Python e Instalar Dependências
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x' 
+      
+      - name: Instalar gspread e PANDAS (requirements.txt)
+        # Requer que 'gspread' e 'pandas' estejam no seu requirements.txt
+        run: pip install -r requirements.txt
+
+      # 🔐 Cria o Arquivo de Credenciais (Requer o Secret GOOGLE_CREDENTIALS)
+      - name: Criar Arquivo de Credenciais
+        # Gera o arquivo 'credenciais.json' que o script Python vai ler
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > credenciais.json
+
+      # 🚀 EXECUÇÃO DO SCRIPT DE ANÁLISE HISTÓRICA
+      - name: Executar Análise Histórica e Gerar HTML
+        run: python analise_historica.py
+        
+      # 💾 PUBLICAÇÃO DO NOVO DASHBOARD HTML
+      # Esta etapa é crucial para que as alterações no HTML sejam salvas no repositório
+      - name: Commit do Dashboard Histórico Atualizado
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          # Salva o arquivo HTML gerado pelo script Python
+          files: dashboard_historico.html
+          commit_message: "Feat: Dashboard Histórico e Tendências atualizado (Mensal)"
