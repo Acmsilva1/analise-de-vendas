@@ -17,6 +17,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    
+    # 🚨 CORREÇÃO CRÍTICA: Permissão de escrita para o token da Action
+    permissions:
+      contents: write # Permite que o bot comite e faça push no repositório
 
     steps:
       - name: Checkout do Repositório
@@ -29,7 +33,6 @@ jobs:
 
       - name: Instalar Dependências
         run: |
-          # CORREÇÃO: Removido 'json' pois é um módulo nativo do Python!
           pip install pandas gspread
 
       - name: Executar o Agente Histórico
@@ -43,4 +46,5 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "Atualização automática do Dashboard Histórico (Dia 1 do mês)"
-          files: dashboard_historico.html
+          # GOVERNANÇA: Usando file_pattern (conforme o Warning sugeriu)
+          file_pattern: dashboard_historico.html
