@@ -13,7 +13,7 @@ on:
 jobs:
   run_monthly_historical_analysis:
     
-    # 🚨 CORREÇÃO 1: ADICIONAR PERMISSÃO DE ESCRITA PARA O COMMIT
+    # PERMISSÃO DE ESCRITA: Corrigiu o erro 403
     permissions:
       contents: write 
     
@@ -30,13 +30,17 @@ jobs:
           python-version: '3.x' 
       
       - name: Instalar gspread e PANDAS (requirements.txt)
-        # Requer que 'gspread' e 'pandas' estejam no seu requirements.txt
         run: pip install -r requirements.txt
 
-      # 🔐 Cria o Arquivo de Credenciais
+      # 🔐 CRIA O ARQUIVO DE CREDENCIAIS (FIX JSON ERROR)
+      # Usa uma variável de ambiente intermediária para injetar o JSON limpo no arquivo
       - name: Criar Arquivo de Credenciais
-        run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > credenciais.json
-
+        run: |
+          echo "$JSON_CREDS" > credenciais.json
+        env:
+          # Carrega o Secret na variável de ambiente.
+          JSON_CREDS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        
       # 🚀 EXECUÇÃO DO SCRIPT DE ANÁLISE HISTÓRICA
       - name: Executar Análise Histórica e Gerar HTML
         run: python analise_historica.py
@@ -46,5 +50,5 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "Feat: Dashboard Histórico e Tendências atualizado (Mensal)"
-          # ✅ CORREÇÃO 2: USAR file_pattern NO LUGAR DE files
+          # Parâmetro corrigido para o nome do arquivo
           file_pattern: dashboard_historico.html
