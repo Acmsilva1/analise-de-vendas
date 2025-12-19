@@ -189,3 +189,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Ocorreu um erro no script de automação: {e}")
         exit(1)
+
