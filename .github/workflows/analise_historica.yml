@@ -1,50 +1,39 @@
-name: Geração de Dashboard Histórico Mensal
+name: Atualizar Dashboard Histórico
 
-# 1. QUANDO RODAR (GATILHO)
 on:
+  # Pode ser um agendamento (cron) ou um push para o branch principal
   schedule:
-    # Roda no primeiro dia de cada mês, às 03:00 UTC (Meia-noite BRT)
-    - cron: '0 3 1 * *' 
-  
-  # Permite que você o acione manualmente para testes
+    # Por exemplo: rodar todo dia à meia-noite UTC
+    - cron: '0 0 * * *'
   workflow_dispatch:
+    # Permite rodar manualmente
 
-# 2. OS TRABALHOS (JOB)
 jobs:
-  run_monthly_historical_analysis:
-    
-    # PERMISSÃO DE ESCRITA: Corrigiu o erro 403
-    permissions:
-      contents: write 
-    
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📦 Checkout Código
+      - name: Checkout do Repositório
         uses: actions/checkout@v4
 
-      # 🐍 Configuração do ambiente Python e Instalação de dependências
-      - name: Set up Python e Instalar Dependências
+      - name: Configurar Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x' 
-      
-      - name: Instalar gspread e PANDAS (requirements.txt)
-        run: pip install -r requirements.txt
+          python-version: '3.10' # Use a versão do Python que você está usando
 
-      # 🔐 CRIA O ARQUIVO DE CREDENCIAIS (INJEÇÃO DIRETA COM ASPAS DUPLAS)
-      - name: Criar Arquivo de Credenciais
-        # Removemos a variável ENV e passamos o Secret diretamente.
-        # As aspas duplas ("") garantem a correta expansão no shell.
-        run: echo "${{ secrets.GOOGLE_CREDENTIALS }}" > credenciais.json
-        
-      # 🚀 EXECUÇÃO DO SCRIPT DE ANÁLISE HISTÓRICA
-      - name: Executar Análise Histórica e Gerar HTML
-        run: python analise_historica.py
-        
-      # 💾 PUBLICAÇÃO DO NOVO DASHBOARD HTML
-      - name: Commit do Dashboard Histórico Atualizado
+      - name: Instalar Dependências
+        run: |
+          pip install pandas gspread
+
+      - name: Executar o Agente Histórico
+        env:
+          # O SEGREDO É INJETADO AQUI, garantindo o funcionamento
+          GCP_SA_CREDENTIALS: ${{ secrets.GCP_SA_CREDENTIALS }}
+        run: |
+          python analise_historica.py
+
+      - name: Commit e Push do Dashboard (Gov. de Repositório)
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Feat: Dashboard Histórico e Tendências atualizado (Mensal)"
-          file_pattern: dashboard_historico.html
+          commit_message: Atualização automática do Dashboard Histórico
+          files: dashboard_historico.html # Garante que apenas o HTML seja versionado
