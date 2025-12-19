@@ -3,9 +3,7 @@ name: Geração de Dashboard Histórico Mensal
 # 1. QUANDO RODAR (GATILHO)
 on:
   schedule:
-    # Roda no primeiro dia de cada mês, às 03:00 UTC.
-    # Isso é 00:00 (meia-noite) no horário de Brasília, garantindo que rode
-    # logo após a conclusão do backup mensal (que roda às 00:00 UTC).
+    # Roda no primeiro dia de cada mês, às 03:00 UTC (Meia-noite BRT)
     - cron: '0 3 1 * *' 
   
   # Permite que você o acione manualmente para testes
@@ -14,6 +12,11 @@ on:
 # 2. OS TRABALHOS (JOB)
 jobs:
   run_monthly_historical_analysis:
+    
+    # 🚨 CORREÇÃO 1: ADICIONAR PERMISSÃO DE ESCRITA PARA O COMMIT
+    permissions:
+      contents: write 
+    
     runs-on: ubuntu-latest
 
     steps:
@@ -30,9 +33,8 @@ jobs:
         # Requer que 'gspread' e 'pandas' estejam no seu requirements.txt
         run: pip install -r requirements.txt
 
-      # 🔐 Cria o Arquivo de Credenciais (Requer o Secret GOOGLE_CREDENTIALS)
+      # 🔐 Cria o Arquivo de Credenciais
       - name: Criar Arquivo de Credenciais
-        # Gera o arquivo 'credenciais.json' que o script Python vai ler
         run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > credenciais.json
 
       # 🚀 EXECUÇÃO DO SCRIPT DE ANÁLISE HISTÓRICA
@@ -40,10 +42,9 @@ jobs:
         run: python analise_historica.py
         
       # 💾 PUBLICAÇÃO DO NOVO DASHBOARD HTML
-      # Esta etapa é crucial para que as alterações no HTML sejam salvas no repositório
       - name: Commit do Dashboard Histórico Atualizado
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          # Salva o arquivo HTML gerado pelo script Python
-          files: dashboard_historico.html
           commit_message: "Feat: Dashboard Histórico e Tendências atualizado (Mensal)"
+          # ✅ CORREÇÃO 2: USAR file_pattern NO LUGAR DE files
+          file_pattern: dashboard_historico.html
