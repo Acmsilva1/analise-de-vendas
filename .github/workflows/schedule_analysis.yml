@@ -3,8 +3,8 @@ name: Dashboard de Vendas - Automação Diária
 # 1. QUANDO RODAR
 on:
   schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
+    # Roda às 9:00 UTC (6h do Brasil) e 21:00 UTC (18h do Brasil)
+    - cron: '0 9,21 * * *'
   # Se quiser rodar a cada push no main, adicione o bloco abaixo
   # push:
   #   branches:
