@@ -25,8 +25,7 @@ except Exception as e:
 SPREADSHEET_ID = "1LuqYrfR8ry_MqCS93Mpj9_7Vu0i9RUTomJU2n69bEug"
 WORKSHEET_NAME = "vendas"
 
-# --- 2. FUNÇÃO DE CARREGAMENTO, LIMPEZA E FILTRAGEM (NOVO) ---
-# AGORA RETORNA DF's FILTRADOS
+# --- 2. FUNÇÃO DE CARREGAMENTO, LIMPEZA E FILTRAGEM ---
 def carregar_e_limpar_dados():
     sh = gc.open_by_key(SPREADSHEET_ID)
     worksheet = sh.worksheet(WORKSHEET_NAME)
@@ -45,7 +44,7 @@ def carregar_e_limpar_dados():
     df['Total Limpo'] = pd.to_numeric(df['Total Limpo'], errors='coerce')
     df.dropna(subset=['Total Limpo'], inplace=True)
 
-    # 2.2. Conversão da Coluna de Data/Hora (Corrigida)
+    # 2.2. Conversão da Coluna de Data/Hora (Corrigida: DD/MM/AAAA HH:MM:SS)
     df['Data/Hora Venda'] = pd.to_datetime(df['DATA E HORA'], errors='coerce', format='%d/%m/%Y %H:%M:%S')
     df.dropna(subset=['Data/Hora Venda'], inplace=True)
     df['Hora'] = df['Data/Hora Venda'].dt.hour
@@ -54,7 +53,7 @@ def carregar_e_limpar_dados():
     if df.empty:
         raise ValueError("O DataFrame está vazio após a limpeza de datas/valores. Sem dados para análise.")
 
-    # 2.4. FILTRAGEM TEMPORAL PARA O DASHBOARD (A NOVA MÁGICA)
+    # 2.4. FILTRAGEM TEMPORAL PARA O DASHBOARD
     
     data_atual = datetime.now().date()
     
@@ -66,10 +65,9 @@ def carregar_e_limpar_dados():
     ano_atual = data_atual.year
     df_mes_atual = df[(df['Data/Hora Venda'].dt.month == mes_atual) & (df['Data/Hora Venda'].dt.year == ano_atual)].copy()
 
-    # Retorna o DataFrame Completo, Diário e Mensal.
     return df, df_mes_atual, df_dia_atual
 
-# --- FUNÇÃO HELPER PARA CÁLCULOS ROBUSTOS (EVITA BUG SE O DF FOR VAZIO) ---
+# --- FUNÇÃO HELPER PARA CÁLCULOS ROBUSTOS (EVITA CRASHES) ---
 def calcular_kpis(df, periodo="Dia"):
     if df.empty:
         return {
@@ -100,18 +98,20 @@ def calcular_kpis(df, periodo="Dia"):
         'pico_hora': pico_hora
     }
 
-# --- 3. ANÁLISES E MONTAGEM DO HTML (RENOVADO) ---
+# --- 3. ANÁLISES E MONTAGEM DO HTML (MULTICAMADAS) ---
 def criar_dashboard_html(df_completo, df_mes, df_dia):
     
     # --- 3.1. CÁLCULOS DOS KPIS POR CAMADA ---
     kpis_mes = calcular_kpis(df_mes, periodo="Mês")
     kpis_dia = calcular_kpis(df_dia, periodo="Dia")
     
-    # --- 3.2. VISUALIZAÇÕES COM PLOTLY (AGORA USANDO O DF DO MÊS PARA CONTEXTO) ---
+    # --- 3.2. VISUALIZAÇÕES COM PLOTLY ---
     
     # Gráfico 1: Vendas por Sabor/Item (Mensal)
     vendas_por_item = df_mes['SABORES'].value_counts().reset_index() 
     vendas_por_item.columns = ['Item', 'Contagem']
+    
+    # Se o DF do mês estiver vazio, o Plotly ainda pode criar um gráfico vazio sem quebrar
     fig_sabor = px.bar(
         vendas_por_item.head(10).sort_values(by='Contagem', ascending=True), 
         x='Contagem', y='Item', 
@@ -142,7 +142,7 @@ def criar_dashboard_html(df_completo, df_mes, df_dia):
     )
     fig_cliente.update_layout(autosize=True, height=500, margin=dict(l=10, r=10, t=40, b=10))
 
-    # --- 3.3. MONTAGEM FINAL DO HTML COM LAYOUT DE CAMADAS ---
+    # --- 3.3. MONTAGEM FINAL DO HTML ---
     
     styles = """
     <style>
@@ -160,7 +160,7 @@ def criar_dashboard_html(df_completo, df_mes, df_dia):
     </style>
     """
 
-    # Blocos KPI
+    # Blocos KPI Mensal
     kpi_mes_html = f"""
     <div class="kpi-container">
         <div class="kpi-box">
@@ -178,6 +178,7 @@ def criar_dashboard_html(df_completo, df_mes, df_dia):
     </div>
     """
     
+    # Blocos KPI Diário
     kpi_dia_html = f"""
     <div class="kpi-container" style="background-color: #383838;">
         <div class="kpi-box">
@@ -238,23 +239,23 @@ def criar_dashboard_html(df_completo, df_mes, df_dia):
     
     return html_content
 
-# --- 4. EXECUÇÃO PRINCIPAL ---
+# --- 4. EXECUÇÃO PRINCIPAL (COM SAÍDA CORRIGIDA) ---
 if __name__ == "__main__":
     try:
-        # Agora retorna 3 DataFrames (completo, mês, dia)
         df_completo, df_mes, df_dia = carregar_e_limpar_dados() 
         final_html = criar_dashboard_html(df_completo, df_mes, df_dia)
 
-        with open("dashboard_vendas_multicamada.html", "w") as f:
+        # 🚨 CORREÇÃO DE GOVERNANÇA: Usando o nome de arquivo original para sobrescrever
+        with open("dashboard_vendas_final.html", "w") as f:
             f.write(final_html)
 
-        print("Dashboard HTML multicamadas (Mês e Dia) gerado com sucesso.")
+        print("Dashboard HTML multicamadas gerado com sucesso no arquivo 'dashboard_vendas_final.html'.")
 
     except ValueError as ve:
         error_html = f"""
         <html><body>
             <h1 style='color: red;'>ERRO CRÍTICO NA LIMPEZA DE DADOS 🛑</h1>
-            <p><strong>André</strong>, o DataFrame está vazio após a limpeza. Verifique o formato dos dados na sua planilha do Google Sheets. A data agora precisa estar em **DD/MM/AAAA HH:MM:SS**.</p>
+            <p><strong>André</strong>, o DataFrame está vazio após a limpeza. Verifique o formato dos dados (DD/MM/AAAA HH:MM:SS) ou a planilha.</p>
             <p>Detalhe: {ve}</p>
         </body></html>
         """
