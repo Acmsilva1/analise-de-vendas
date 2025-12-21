@@ -19,12 +19,16 @@ COLUNA_VALOR_VENDA = 'VALOR DA VENDA'
 # GASTOS
 ID_HISTORICO_GASTOS = "1DU3oxwCLCVmmYA9oD9lrGkBx2SyI87UtPw-BDDwA9EA"
 ABA_GASTOS = "GASTOS"
-COLUNA_VALOR_GASTO = 'VALOR' # Coluna 'VALOR' na planilha de Gastos
-COLUNA_DATA = 'DATA E HORA' # Coluna de Data é a mesma em ambas
+COLUNA_VALOR_GASTO = 'VALOR' 
+COLUNA_DATA = 'DATA E HORA' 
 
 OUTPUT_HTML = "dashboard_ml_insights.html"
 URL_DASHBOARD = "https://acmsilva1.github.io/analise-de-vendas/dashboard_ml_insights.html" 
 # --------------------------------------------------------------------------------
+
+def format_brl(value):
+    """Função helper para formatar valores em R$"""
+    return f"R$ {value:,.2f}".replace('.', 'X').replace(',', '.').replace('X', ',')
 
 def autenticar_gspread():
     SHEET_CREDENTIALS_JSON = os.environ.get('GCP_SA_CREDENTIALS')
@@ -45,7 +49,7 @@ def carregar_dados_de_planilha(gc, sheet_id, aba_nome, coluna_valor, prefixo):
              
         df = pd.DataFrame(dados[1:], columns=dados[0])
         
-        # Limpeza do Valor (R$ e substitui vírgula por ponto)
+        # Limpeza do Valor
         df['temp_valor'] = df[coluna_valor].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=True).str.strip()
         df[f'{prefixo}_Float'] = pd.to_numeric(df['temp_valor'], errors='coerce')
         
@@ -66,26 +70,22 @@ def carregar_dados_de_planilha(gc, sheet_id, aba_nome, coluna_valor, prefixo):
         return pd.DataFrame()
 
 def carregar_e_combinar_dados(gc):
-    # 1. Carregar Vendas e Gastos separadamente
     df_vendas = carregar_dados_de_planilha(gc, ID_HISTORICO_VENDAS, ABA_VENDAS, COLUNA_VALOR_VENDA, 'Vendas')
     df_gastos = carregar_dados_de_planilha(gc, ID_HISTORICO_GASTOS, ABA_GASTOS, COLUNA_VALOR_GASTO, 'Gastos')
     
     if df_vendas.empty or df_gastos.empty:
         raise ValueError("Dados insuficientes para análise de Lucro (Vendas ou Gastos estão vazios).")
 
-    # 2. Combinar os DataFrames pelo Índice (Mês_Ano)
     df_combinado = pd.merge(
         df_vendas, 
         df_gastos, 
         left_index=True, 
         right_index=True, 
-        how='outer' # Garante que todos os meses com alguma transação sejam incluídos
-    ).fillna(0) # Preenche meses onde não houve venda ou gasto com 0
+        how='outer' 
+    ).fillna(0) 
 
-    # 3. Calcular o Lucro Líquido
     df_combinado['Lucro_Liquido'] = df_combinado['Total_Vendas'] - df_combinado['Total_Gastos']
     
-    # 4. Adicionar Feature Numérica (Mes_Index)
     df_combinado = df_combinado.sort_index().reset_index()
     df_combinado['Mes_Index'] = np.arange(len(df_combinado))
     
@@ -95,47 +95,63 @@ def carregar_e_combinar_dados(gc):
     return df_combinado
 
 def treinar_e_prever(df_mensal):
-    # O modelo agora prevê o Lucro Líquido
     X = df_mensal[['Mes_Index']] 
     y = df_mensal['Lucro_Liquido'] 
     
-    # Treinamento do Modelo
     modelo = LinearRegression()
     modelo.fit(X, y)
     
-    # Previsão para o Próximo Mês
     proximo_mes_index = df_mensal['Mes_Index'].max() + 1
     previsao_proximo_mes = modelo.predict([[proximo_mes_index]])[0]
 
-    # Cálculo da Métrica de Erro
     predicoes_historicas = modelo.predict(X)
     mae = mean_absolute_error(y, predicoes_historicas)
 
-    # Último Valor para Comparação
     ultimo_lucro_real = df_mensal['Lucro_Liquido'].iloc[-1]
     
     return previsao_proximo_mes, mae, ultimo_lucro_real
 
-def montar_dashboard_ml(previsao, mae, ultimo_valor_real):
+# --- NOVO: Função para gerar a tabela de auditoria ---
+def gerar_tabela_auditoria(df_mensal):
+    table_rows = ""
+    # Itera sobre o DataFrame do mais antigo para o mais recente
+    for index, row in df_mensal.iterrows():
+        lucro = row['Lucro_Liquido']
+        
+        # Define a cor da linha com base no Lucro/Prejuízo (Governança Visual)
+        lucro_class = 'lucro-positivo' if lucro >= 0 else 'lucro-negativo'
+        
+        table_rows += f"""
+        <tr class="{lucro_class}">
+            <td>{row['Mes_Ano']}</td>
+            <td>{format_brl(row['Total_Vendas'])}</td>
+            <td>{format_brl(row['Total_Gastos'])}</td>
+            <td>{format_brl(lucro)}</td>
+        </tr>
+        """
+    return table_rows
+# ----------------------------------------------------
+
+def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico):
     
-    # Lógica de Classificação do Insight (Focada no Lucro Líquido)
+    # Lógica de Classificação do Insight
     diferenca = previsao - ultimo_valor_real
     
     if previsao < 0:
-        insight = f"🚨 **Previsão de PREJUÍZO!** Lucro negativo de {abs(diferenca):,.2f} esperado."
+        insight = f"🚨 **Previsão de PREJUÍZO!** Lucro negativo de {format_brl(abs(previsao))} esperado."
         cor = "#dc3545" # Vermelho
     elif diferenca > (ultimo_valor_real * 0.10):
-        insight = f"🚀 **Crescimento de Lucro Esperado!** Aumento de {diferenca:,.2f}."
+        insight = f"🚀 **Crescimento de Lucro Esperado!** Aumento de {format_brl(diferenca)}."
         cor = "#28a745" # Verde
     elif diferenca < -(ultimo_valor_real * 0.10):
-        insight = f"⚠️ **Risco de Queda de Lucro!** Retração de {abs(diferenca):,.2f} esperada. Analise seus custos!"
+        insight = f"⚠️ **Risco de Queda de Lucro!** Retração de {format_brl(abs(diferenca))} esperada. Analise seus custos!"
         cor = "#ffc107" # Amarelo
     else:
         insight = f"➡️ **Estabilidade Esperada.** Lucro projetado próximo ao mês passado."
         cor = "#17a2b8" # Azul Claro
 
-    def format_brl(value):
-        return f"R$ {value:,.2f}".replace('.', 'X').replace(',', '.').replace('X', ',')
+    # Geração da tabela de auditoria
+    tabela_auditoria_html = gerar_tabela_auditoria(df_historico)
 
     html_content = f"""
     <!DOCTYPE html>
@@ -150,13 +166,19 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real):
             .metric-box h3 {{ margin-top: 0; font-size: 1.5em; }}
             .metric-box p {{ font-size: 2.5em; font-weight: bold; }}
             .info-box {{ padding: 10px; border: 1px dashed #ccc; background-color: #f8f9fa; margin-top: 15px; }}
+            
+            table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }}
+            th, td {{ padding: 10px; border: 1px solid #ddd; text-align: left; }}
+            th {{ background-color: #6f42c1; color: white; }}
+            .lucro-positivo {{ background-color: #e6ffe6; }} /* Fundo claro para lucro */
+            .lucro-negativo {{ background-color: #ffe6e6; }} /* Fundo claro para prejuízo */
+            .text-negativo {{ color: red; font-weight: bold; }}
         </style>
     </head>
     <body>
         <div class="container">
             <h2>🔮 Insights de Machine Learning: Previsão de LUCRO LÍQUIDO</h2>
-            <p>Modelo: Regressão Linear Simples (scikit-learn)</p>
-            <p>Data da Previsão: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}</p>
+            <p>Modelo: Regressão Linear Simples. Data: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}</p>
             
             <div class="metric-box">
                 <h3>Lucro Líquido Projetado para o Próximo Mês</h3>
@@ -172,9 +194,24 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real):
                 <h4>Métricas de Qualidade (Governança de IA)</h4>
                 <p>Lucro Real Mês Passado: **{format_brl(ultimo_valor_real)}**</p>
                 <p>Erro Absoluto Médio Histórico (MAE): **{format_brl(mae)}**</p>
-                <p>*(O MAE representa a margem de erro histórica do modelo na predição do Lucro Líquido.)</p>
             </div>
             
+            <h2>📊 Tabela de Auditoria Histórica (Base do ML)</h2>
+            <p>Estes são os dados consolidados de Vendas e Gastos utilizados para treinar o modelo de previsão.</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Mês/Ano</th>
+                        <th>Vendas Totais</th>
+                        <th>Gastos Totais</th>
+                        <th>Lucro Líquido (Vendas - Gastos)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {tabela_auditoria_html}
+                </tbody>
+            </table>
+
             <p style="margin-top: 20px; font-size: 0.9em; color: #777;">Dashboard hospedado em: <a href="{URL_DASHBOARD}" target="_blank">{URL_DASHBOARD}</a></p>
         </div>
     </body>
@@ -194,13 +231,14 @@ if __name__ == "__main__":
         
         if not df_mensal.empty:
             previsao, mae, ultimo_lucro_real = treinar_e_prever(df_mensal)
-            montar_dashboard_ml(previsao, mae, ultimo_lucro_real)
+            
+            # Passando o DataFrame histórico completo para o dashboard
+            montar_dashboard_ml(previsao, mae, ultimo_lucro_real, df_mensal)
         else:
             print("Execução ML interrompida por falta de dados históricos.")
             
     except Exception as e:
         error_message = str(e)
         print(f"ERRO CRÍTICO NA EXECUÇÃO DO ML: {error_message}")
-        # Criar um arquivo HTML de erro para governança
         with open(OUTPUT_HTML, 'w', encoding='utf-8') as f:
              f.write(f"<html><body><h2>Erro Crítico na Geração do ML Dashboard</h2><p>Detalhes: {error_message}</p></body></html>")
