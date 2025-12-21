@@ -1,0 +1,46 @@
+name: Gerar Previsão de Vendas (Machine Learning) 🔮
+
+on:
+  # Roda no dia 2 de cada mês (após o backup e a análise histórica)
+  schedule:
+    - cron: '0 5 2 * *' 
+  
+  # Execução Manual
+  workflow_dispatch:
+    inputs:
+      motivo:
+        description: 'Motivo da execução manual'
+        required: false
+        default: 'Teste de modelo de ML'
+
+jobs:
+  build_ml:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write # Permite que o bot comite o novo dashboard
+
+    steps:
+      - name: Checkout do Repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Instalar Dependências (Incluindo Scikit-Learn para ML)
+        run: |
+          pip install pandas gspread scikit-learn
+
+      - name: Executar o Modelo de Previsão
+        env:
+          GCP_SA_CREDENTIALS: ${{ secrets.GCP_SA_CREDENTIALS }}
+        run: |
+          python predicao_ml.py
+
+      - name: Commit e Push do Dashboard de ML
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Atualização automática do Dashboard de Previsão ML"
+          file_pattern: dashboard_ml_insights.html
