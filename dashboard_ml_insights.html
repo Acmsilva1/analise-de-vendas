@@ -11,13 +11,19 @@
             .metric-box h3 { margin-top: 0; font-size: 1.5em; }
             .metric-box p { font-size: 2.5em; font-weight: bold; }
             .info-box { padding: 10px; border: 1px dashed #ccc; background-color: #f8f9fa; margin-top: 15px; }
+            
+            table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+            th, td { padding: 10px; border: 1px solid #ddd; text-align: left; }
+            th { background-color: #6f42c1; color: white; }
+            .lucro-positivo { background-color: #e6ffe6; } /* Fundo claro para lucro */
+            .lucro-negativo { background-color: #ffe6e6; } /* Fundo claro para prejuízo */
+            .text-negativo { color: red; font-weight: bold; }
         </style>
     </head>
     <body>
         <div class="container">
             <h2>🔮 Insights de Machine Learning: Previsão de LUCRO LÍQUIDO</h2>
-            <p>Modelo: Regressão Linear Simples (scikit-learn)</p>
-            <p>Data da Previsão: 21/12/2025 12:21:09</p>
+            <p>Modelo: Regressão Linear Simples. Data: 21/12/2025 12:25:02</p>
             
             <div class="metric-box">
                 <h3>Lucro Líquido Projetado para o Próximo Mês</h3>
@@ -26,16 +32,66 @@
             
             <div class="info-box">
                 <h4>Insight da Previsão:</h4>
-                <p>🚀 **Crescimento de Lucro Esperado!** Aumento de 750.53.</p>
+                <p>🚀 **Crescimento de Lucro Esperado!** Aumento de R$ 750,53.</p>
             </div>
 
             <div class="info-box">
                 <h4>Métricas de Qualidade (Governança de IA)</h4>
                 <p>Lucro Real Mês Passado: **R$ 1.511,59**</p>
                 <p>Erro Absoluto Médio Histórico (MAE): **R$ 557,79**</p>
-                <p>*(O MAE representa a margem de erro histórica do modelo na predição do Lucro Líquido.)</p>
             </div>
             
+            <h2>📊 Tabela de Auditoria Histórica (Base do ML)</h2>
+            <p>Estes são os dados consolidados de Vendas e Gastos utilizados para treinar o modelo de previsão.</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Mês/Ano</th>
+                        <th>Vendas Totais</th>
+                        <th>Gastos Totais</th>
+                        <th>Lucro Líquido (Vendas - Gastos)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+        <tr class="lucro-positivo">
+            <td>2025-07</td>
+            <td>R$ 868,00</td>
+            <td>R$ 0,00</td>
+            <td>R$ 868,00</td>
+        </tr>
+        
+        <tr class="lucro-positivo">
+            <td>2025-08</td>
+            <td>R$ 2.176,00</td>
+            <td>R$ 0,00</td>
+            <td>R$ 2.176,00</td>
+        </tr>
+        
+        <tr class="lucro-positivo">
+            <td>2025-09</td>
+            <td>R$ 2.740,50</td>
+            <td>R$ 0,00</td>
+            <td>R$ 2.740,50</td>
+        </tr>
+        
+        <tr class="lucro-positivo">
+            <td>2025-10</td>
+            <td>R$ 3.309,00</td>
+            <td>R$ 1.169,90</td>
+            <td>R$ 2.139,10</td>
+        </tr>
+        
+        <tr class="lucro-positivo">
+            <td>2025-11</td>
+            <td>R$ 4.063,00</td>
+            <td>R$ 2.551,41</td>
+            <td>R$ 1.511,59</td>
+        </tr>
+        
+                </tbody>
+            </table>
+
             <p style="margin-top: 20px; font-size: 0.9em; color: #777;">Dashboard hospedado em: <a href="https://acmsilva1.github.io/analise-de-vendas/dashboard_ml_insights.html" target="_blank">https://acmsilva1.github.io/analise-de-vendas/dashboard_ml_insights.html</a></p>
         </div>
     </body>
