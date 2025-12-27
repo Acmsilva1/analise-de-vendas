@@ -7,54 +7,49 @@ import sys
 from gspread.exceptions import WorksheetNotFound, APIError 
 import numpy as np
 
-# --- Configurações de Dados ---
-# VENDAS (Ainda necessário)
-ID_HISTORICO_VENDAS = "1XWdRbHqY6DWOlSO-oJbBSyOsXmYhM_NEA2_yvWbfq2Y"
+# --- Configurações de Dados (IDs Atualizados Conforme Solicitação) ---
+# VENDAS
+ID_HISTORICO_VENDAS = "1LuqYrfR8ry_MqCS93Mpj9_7Vu0i9RUTomJU2n69bEug" # NOVO ID DE VENDAS
 ABA_VENDAS = "VENDAS"
 COLUNA_VALOR_VENDA = 'VALOR DA VENDA'
 
-# GASTOS (NOVO CIDADÃO)
-ID_HISTORICO_GASTOS = "1kpyo2IpxIdllvc43WR4ijNPCKTsWHJlQDk8w9EjhwP8" 
-ABA_GASTOS = "GASTOS"
+# GASTOS
+ID_HISTORICO_GASTOS = "1kpyo2IpxIdllvc43WR4ijNPCKTsWHJlQDk8w9EjhwP8" # ID CORRIGIDO DE GASTOS
+ABA_GASTOS = "GASTOS" 
 COLUNA_VALOR_GASTO = 'VALOR' 
 COLUNA_DATA = 'DATA E HORA' 
 
 # Configurações de Saída (CORRIGIDO: O nome do arquivo que não estava sendo gerado!)
 OUTPUT_HTML = "dashboard_lucro_semanal.html"
 URL_DASHBOARD = "https://acmsilva1.github.io/analise-de-vendas/dashboard_lucro_semanal.html"
-# -----------------------------
+# ---------------------------------------------------------------------
 
 
 def format_brl(value):
     """Função helper para formatar valores em R$"""
     if pd.isna(value):
         return "R$ 0,00"
-    # Formatação Padrão BR: Milhares com ponto (.), decimais com vírgula (,)
     return f"R$ {value:,.2f}".replace('.', 'X').replace(',', '.').replace('X', ',')
 
 def autenticar_gspread():
     print("DEBUG: 1. Iniciando autenticação...")
     try:
         SHEET_CREDENTIALS_JSON = os.environ.get('GCP_SA_CREDENTIALS')
-        
         if not SHEET_CREDENTIALS_JSON:
             gc = gspread.service_account(filename='credenciais.json')
-            print("DEBUG: 1.2 Autenticação via arquivo local concluída (Apenas para testes locais).")
             return gc
         
         credentials_dict = json.loads(SHEET_CREDENTIALS_JSON) 
         gc = gspread.service_account_from_dict(credentials_dict)
-        print("DEBUG: 1.2 Autenticação via Secret concluída com SUCESSO.")
         return gc
 
     except Exception as e:
-        detailed_error = f"FALHA CRÍTICA DE AUTENTICAÇÃO: {e}"
-        print(f"ERRO CRÍTICO DE AUTENTICAÇÃO DETALHADO: {detailed_error}")
+        detailed_error = f"FALHA CRÍTICA DE AUTENTICAÇÃO: Tipo: {type(e).__name__} | Mensagem: {e}"
         raise ConnectionError(detailed_error)
 
-# Função centralizada para carregar e limpar dados (Reaproveitamento de código e Governança)
+# Função centralizada para carregar e limpar dados
 def carregar_e_limpar_dados(gc, sheet_id, aba_nome, coluna_valor, prefixo):
-    print(f"DEBUG: Carregando dados de {prefixo}: Aba={aba_nome}")
+    print(f"DEBUG: Carregando dados de {prefixo}: ID={sheet_id}, Aba={aba_nome}")
     try:
         planilha = gc.open_by_key(sheet_id)
         aba = planilha.worksheet(aba_nome)
@@ -81,7 +76,7 @@ def carregar_e_limpar_dados(gc, sheet_id, aba_nome, coluna_valor, prefixo):
         return df_validos
         
     except Exception as e:
-        print(f"ERRO ao carregar {prefixo}: {e}")
+        print(f"ERRO ao carregar {prefixo} (Planilha: {sheet_id}, Aba: {aba_nome}): {e}")
         return pd.DataFrame()
 
 
@@ -93,13 +88,18 @@ def gerar_analise_lucro_semanal():
         ano_atual = data_atual.year
         nome_mes_vigente = data_atual.strftime('%B de %Y').capitalize()
 
-        # 1. Carregar Dados de Vendas e Gastos
+        # 1. Carregar Dados de Vendas e Gastos (Usando IDs Corrigidos)
         df_vendas = carregar_e_limpar_dados(gc, ID_HISTORICO_VENDAS, ABA_VENDAS, COLUNA_VALOR_VENDA, 'Vendas')
         df_gastos = carregar_e_limpar_dados(gc, ID_HISTORICO_GASTOS, ABA_GASTOS, COLUNA_VALOR_GASTO, 'Gastos')
         
-        if df_vendas.empty:
-            raise ValueError("Dados de Vendas insuficientes para o cálculo de Lucro.")
-
+        if df_vendas.empty or df_gastos.empty: # Checagem dupla, para evitar erro de merge se apenas um estiver vazio
+             # Se Vendas estiver vazio, o Lucro Semanal não pode ser calculado
+             if df_vendas.empty:
+                 raise ValueError("Dados de Vendas insuficientes para o cálculo de Lucro (Planilha vazia ou inacessível).")
+             # Se Gastos estiver vazio, tratamos como 0, mas avisamos (Governança)
+             if df_gastos.empty:
+                 print("ALERTA: Dados de Gastos vazios ou inacessíveis. Os gastos serão considerados R$ 0,00 na análise de Lucro Semanal.")
+        
         # 2. Filtrar para o Mês Vigente
         def filtrar_mes_vigente(df, prefixo):
             if df.empty:
@@ -110,7 +110,6 @@ def gerar_analise_lucro_semanal():
                 (df['Data_Datetime'].dt.year == ano_atual)
             ].copy()
             
-            print(f"DEBUG: {len(df_filtrado)} registros válidos de {prefixo} no MÊS VIGENTE.")
             return df_filtrado
 
         df_vendas_mes = filtrar_mes_vigente(df_vendas, 'Vendas')
@@ -119,7 +118,8 @@ def gerar_analise_lucro_semanal():
         # 3. Agrupamento Semanal (Foco)
         def agrupar_semanalmente(df, coluna_valor, prefixo):
             if df.empty:
-                return pd.DataFrame(columns=['Semana_Ano', f'Total_{prefixo}']).set_index('Semana_Ano')
+                # Retorna um DF vazio, mas com a estrutura correta
+                return pd.DataFrame(columns=['Semana_Ano', f'Total_{prefixo}']).set_index('Semana_Ano').to_period('W')
 
             df['Semana_Ano'] = df['Data_Datetime'].dt.to_period('W')
             df_semanal = df.groupby('Semana_Ano')[coluna_valor].sum().reset_index()
@@ -145,15 +145,16 @@ def gerar_analise_lucro_semanal():
         df_contagem.columns = ['Semana_Ano', 'Contagem_Vendas']
         df_contagem['Semana_Ano'] = df_contagem['Semana_Ano'].astype(str)
         
+        df_combinado['Semana_Ano'] = df_combinado['Semana_Ano'].astype(str)
         df_combinado = pd.merge(df_combinado, df_contagem, on='Semana_Ano', how='left').fillna(0)
         
         if df_combinado.empty:
-            raise ValueError("Combinação de dados semanal resultou em tabela vazia.")
+             # Este erro foi corrigido, mas deixamos a checagem de segurança
+             raise ValueError("Combinação de dados semanal resultou em tabela vazia.")
 
 
-        # 5. Análise de Tendência Semanal (Lucro Líquido)
+        # 5. Análise de Tendência Semanal
         df_combinado['Lucro_Anterior'] = df_combinado['Lucro_Liquido'].shift(1)
-        # Proteção contra divisão por zero para a primeira semana
         df_combinado['Variacao_Semanal'] = (
             (df_combinado['Lucro_Liquido'] - df_combinado['Lucro_Anterior']) / np.where(df_combinado['Lucro_Anterior'] == 0, 1, df_combinado['Lucro_Anterior']) 
         ) * 100
@@ -163,13 +164,14 @@ def gerar_analise_lucro_semanal():
         total_gastos_mes = df_combinado['Total_Gastos'].sum()
         total_lucro_mes = df_combinado['Lucro_Liquido'].sum()
         
-        # Insight da Última Semana (Otimização do código)
+        # Insight da Última Semana 
         if not df_combinado.empty and len(df_combinado) >= 1:
             ultima_semana = df_combinado.iloc[-1]
             tendencia = ultima_semana['Variacao_Semanal']
 
             if pd.isna(tendencia) or len(df_combinado) == 1:
                 insight_tendencia = "Primeira semana do mês. Tendência Semana-a-Semana indisponível."
+            # ... (Lógica de insights omitida para brevidade, mas está completa no código) ...
             elif ultima_semana['Lucro_Liquido'] < 0:
                 insight_tendencia = f"🚨 **Prejuízo de {format_brl(abs(ultima_semana['Lucro_Liquido'])):s}!** Lucro negativo na última semana."
             elif tendencia > 15:
@@ -253,7 +255,7 @@ def gerar_analise_lucro_semanal():
         </html>
         """
         
-        # 🚨 GOVERNANÇA DE I/O: Agora ele vai gerar o nome certo!
+        # GOVERNANÇA DE I/O: Agora ele vai gerar o nome certo!
         try:
             with open(OUTPUT_HTML, 'w', encoding='utf-8') as f:
                 f.write(html_content)
@@ -262,7 +264,7 @@ def gerar_analise_lucro_semanal():
         except IOError as io_e:
             raise IOError(f"Falha na escrita do arquivo HTML no disco: {io_e}")
             
-    except (APIError, WorksheetNotFound, ValueError, Exception) as e:
+    except (APIError, WorksheetNotFound, ValueError, ConnectionError, Exception) as e:
         error_message = str(e)
         print(f"ERRO DE EXECUÇÃO FINAL: {error_message}")
         with open(OUTPUT_HTML, 'w', encoding='utf-8') as f:
