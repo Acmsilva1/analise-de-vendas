@@ -3,49 +3,58 @@ import pandas as pd
 from datetime import datetime
 import os
 import json 
+import sys 
 from gspread.exceptions import WorksheetNotFound, APIError 
-import numpy as np # Adicionado para uso futuro, se necessário
+import numpy as np
 
-# --- Configurações ---
-# DADOS DE ENTRADA
-ID_HISTORICO_VENDAS = "1XWdRbHqY6DWOlSO-oJbBSyOsXmYhM_NEA2_yvbfq2Y" # Mantendo o ID original de Vendas
-ID_HISTORICO_GASTOS = "1kpyo2IpxIdllvc43WR4ijNPCKTsWHJlQDk8w9EjhwP8" # NOVO ID de Gastos
+# --- Configurações de Dados ---
+# VENDAS (Ainda necessário)
+ID_HISTORICO_VENDAS = "1XWdRbHqY6DWOlSO-oJbBSyOsXmYhM_NEA2_yvWbfq2Y"
 ABA_VENDAS = "VENDAS"
-ABA_GASTOS = "GASTOS" # Nome da aba de gastos
 COLUNA_VALOR_VENDA = 'VALOR DA VENDA'
-COLUNA_VALOR_GASTO = 'VALOR' # Coluna de valor na planilha de gastos
-COLUNA_DATA = 'DATA E HORA'
 
-# DADOS DE SAÍDA
+# GASTOS (NOVO CIDADÃO)
+ID_HISTORICO_GASTOS = "1kpyo2IpxIdllvc43WR4ijNPCKTsWHJlQDk8w9EjhwP8" 
+ABA_GASTOS = "GASTOS"
+COLUNA_VALOR_GASTO = 'VALOR' 
+COLUNA_DATA = 'DATA E HORA' 
+
+# Configurações de Saída (CORRIGIDO: O nome do arquivo que não estava sendo gerado!)
 OUTPUT_HTML = "dashboard_lucro_semanal.html"
 URL_DASHBOARD = "https://acmsilva1.github.io/analise-de-vendas/dashboard_lucro_semanal.html"
-# ---------------------
+# -----------------------------
+
 
 def format_brl(value):
     """Função helper para formatar valores em R$"""
-    # Evita erros de NaN e formata para o padrão Brasileiro
     if pd.isna(value):
         return "R$ 0,00"
+    # Formatação Padrão BR: Milhares com ponto (.), decimais com vírgula (,)
     return f"R$ {value:,.2f}".replace('.', 'X').replace(',', '.').replace('X', ',')
 
 def autenticar_gspread():
-    # ... (Autenticação mantida, como no código original)
     print("DEBUG: 1. Iniciando autenticação...")
-    # ... (código de autenticação omitido para brevidade)
     try:
         SHEET_CREDENTIALS_JSON = os.environ.get('GCP_SA_CREDENTIALS')
+        
         if not SHEET_CREDENTIALS_JSON:
             gc = gspread.service_account(filename='credenciais.json')
+            print("DEBUG: 1.2 Autenticação via arquivo local concluída (Apenas para testes locais).")
             return gc
+        
         credentials_dict = json.loads(SHEET_CREDENTIALS_JSON) 
         gc = gspread.service_account_from_dict(credentials_dict)
+        print("DEBUG: 1.2 Autenticação via Secret concluída com SUCESSO.")
         return gc
-    except Exception as e:
-        raise ConnectionError(f"FALHA CRÍTICA DE AUTENTICAÇÃO: {e}")
 
-# 🚨 NOVO: Função centralizada para carregar e limpar dados
+    except Exception as e:
+        detailed_error = f"FALHA CRÍTICA DE AUTENTICAÇÃO: {e}"
+        print(f"ERRO CRÍTICO DE AUTENTICAÇÃO DETALHADO: {detailed_error}")
+        raise ConnectionError(detailed_error)
+
+# Função centralizada para carregar e limpar dados (Reaproveitamento de código e Governança)
 def carregar_e_limpar_dados(gc, sheet_id, aba_nome, coluna_valor, prefixo):
-    print(f"DEBUG: Carregando dados de {prefixo}: ID={sheet_id}, Aba={aba_nome}")
+    print(f"DEBUG: Carregando dados de {prefixo}: Aba={aba_nome}")
     try:
         planilha = gc.open_by_key(sheet_id)
         aba = planilha.worksheet(aba_nome)
@@ -57,11 +66,10 @@ def carregar_e_limpar_dados(gc, sheet_id, aba_nome, coluna_valor, prefixo):
              
         df = pd.DataFrame(dados[1:], columns=dados[0])
         
-        # Governança de Colunas: Checagem
         if COLUNA_DATA not in df.columns or coluna_valor not in df.columns:
             raise ValueError(f"COLUNAS AUSENTES em {prefixo}: '{COLUNA_DATA}' ou '{coluna_valor}'.")
 
-        # Limpeza do Valor (Remove R$, substitui vírgula por ponto)
+        # Limpeza do Valor
         df['temp_valor'] = df[coluna_valor].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=True).str.strip()
         df[f'{prefixo}_Float'] = pd.to_numeric(df['temp_valor'], errors='coerce')
         
@@ -85,16 +93,14 @@ def gerar_analise_lucro_semanal():
         ano_atual = data_atual.year
         nome_mes_vigente = data_atual.strftime('%B de %Y').capitalize()
 
-        # 1. Carregar e Limpar Dados (Vendas e Gastos)
+        # 1. Carregar Dados de Vendas e Gastos
         df_vendas = carregar_e_limpar_dados(gc, ID_HISTORICO_VENDAS, ABA_VENDAS, COLUNA_VALOR_VENDA, 'Vendas')
         df_gastos = carregar_e_limpar_dados(gc, ID_HISTORICO_GASTOS, ABA_GASTOS, COLUNA_VALOR_GASTO, 'Gastos')
         
         if df_vendas.empty:
             raise ValueError("Dados de Vendas insuficientes para o cálculo de Lucro.")
 
-        # 2. Filtrar para o Mês Vigente (Vendas e Gastos)
-        
-        # Função para filtrar o DF para o mês/ano atual
+        # 2. Filtrar para o Mês Vigente
         def filtrar_mes_vigente(df, prefixo):
             if df.empty:
                 return pd.DataFrame()
@@ -110,11 +116,9 @@ def gerar_analise_lucro_semanal():
         df_vendas_mes = filtrar_mes_vigente(df_vendas, 'Vendas')
         df_gastos_mes = filtrar_mes_vigente(df_gastos, 'Gastos')
         
-        # 3. Agrupamento Semanal (Vendas e Gastos)
-        
+        # 3. Agrupamento Semanal (Foco)
         def agrupar_semanalmente(df, coluna_valor, prefixo):
             if df.empty:
-                # Cria um DataFrame vazio com as colunas esperadas para o merge
                 return pd.DataFrame(columns=['Semana_Ano', f'Total_{prefixo}']).set_index('Semana_Ano')
 
             df['Semana_Ano'] = df['Data_Datetime'].dt.to_period('W')
@@ -123,10 +127,9 @@ def gerar_analise_lucro_semanal():
             return df_semanal.set_index('Semana_Ano')
 
         vendas_semanais = agrupar_semanalmente(df_vendas_mes, 'Vendas_Float', 'Vendas')
-        gastos_semanais = agrupar_semanalmente(df_gastos_mes, 'Gastos_Float', 'Gastos') # Ajuste o nome da coluna se necessário
+        gastos_semanais = agrupar_semanalmente(df_gastos_mes, 'Gastos_Float', 'Gastos') 
 
-        # 4. Combinação e Cálculo de Lucro
-        
+        # 4. Combinação e Cálculo de Lucro Líquido
         df_combinado = pd.merge(
             vendas_semanais, 
             gastos_semanais, 
@@ -135,10 +138,9 @@ def gerar_analise_lucro_semanal():
             how='outer' 
         ).fillna(0).sort_index().reset_index() 
 
-        # Cálculo do Lucro e Contagem de Transações (Apenas Vendas)
         df_combinado['Lucro_Liquido'] = df_combinado['Total_Vendas'] - df_combinado['Total_Gastos']
         
-        # Adicionar contagem de transações de vendas para o Dashboard
+        # Adicionar contagem de transações de vendas
         df_contagem = df_vendas_mes.groupby(df_vendas_mes['Data_Datetime'].dt.to_period('W'))['Vendas_Float'].size().reset_index()
         df_contagem.columns = ['Semana_Ano', 'Contagem_Vendas']
         df_contagem['Semana_Ano'] = df_contagem['Semana_Ano'].astype(str)
@@ -150,10 +152,10 @@ def gerar_analise_lucro_semanal():
 
 
         # 5. Análise de Tendência Semanal (Lucro Líquido)
-        
         df_combinado['Lucro_Anterior'] = df_combinado['Lucro_Liquido'].shift(1)
+        # Proteção contra divisão por zero para a primeira semana
         df_combinado['Variacao_Semanal'] = (
-            (df_combinado['Lucro_Liquido'] - df_combinado['Lucro_Anterior']) / np.where(df_combinado['Lucro_Anterior'] == 0, 1, df_combinado['Lucro_Anterior']) # Proteção contra divisão por zero
+            (df_combinado['Lucro_Liquido'] - df_combinado['Lucro_Anterior']) / np.where(df_combinado['Lucro_Anterior'] == 0, 1, df_combinado['Lucro_Anterior']) 
         ) * 100
         
         # Métricas Totais do Mês Vigente
@@ -161,15 +163,15 @@ def gerar_analise_lucro_semanal():
         total_gastos_mes = df_combinado['Total_Gastos'].sum()
         total_lucro_mes = df_combinado['Lucro_Liquido'].sum()
         
-        # Insight da Última Semana
-        if not df_combinado.empty and len(df_combinado) > 1:
+        # Insight da Última Semana (Otimização do código)
+        if not df_combinado.empty and len(df_combinado) >= 1:
             ultima_semana = df_combinado.iloc[-1]
             tendencia = ultima_semana['Variacao_Semanal']
 
             if pd.isna(tendencia) or len(df_combinado) == 1:
                 insight_tendencia = "Primeira semana do mês. Tendência Semana-a-Semana indisponível."
             elif ultima_semana['Lucro_Liquido'] < 0:
-                insight_tendencia = f"🚨 **Prejuízo de {format_brl(abs(ultima_semana['Lucro_Liquido'])):s}!** Redução de Lucro de {tendencia:.2f}% na última semana."
+                insight_tendencia = f"🚨 **Prejuízo de {format_brl(abs(ultima_semana['Lucro_Liquido'])):s}!** Lucro negativo na última semana."
             elif tendencia > 15:
                 insight_tendencia = f"🚀 **Forte Aumento de Lucro!** Crescimento de {tendencia:.2f}% na última semana."
             elif tendencia > 0:
@@ -177,7 +179,7 @@ def gerar_analise_lucro_semanal():
             else:
                 insight_tendencia = f"📉 Queda de Lucro de {abs(tendencia):.2f}%."
         else:
-            insight_tendencia = "Nenhum dado válido encontrado para análise de tendências neste mês."
+            insight_tendencia = "Nenhum dado válido encontrado para análise de Lucro neste mês."
 
 
         # 6. Geração da Tabela HTML
@@ -214,8 +216,8 @@ def gerar_analise_lucro_semanal():
                 th {{ background-color: #008080; color: white; }}
                 .positivo {{ color: green; font-weight: bold; }}
                 .negativo {{ color: red; font-weight: bold; }}
-                .lucro-positivo {{ background-color: #e6ffe6; font-weight: bold; color: green; }} 
-                .lucro-negativo {{ background-color: #ffe6e6; font-weight: bold; color: red; }}
+                .lucro-positivo {{ background-color: #e6ffe6; font-weight: bold; color: #006400; }} 
+                .lucro-negativo {{ background-color: #ffe6e6; font-weight: bold; color: #8b0000; }}
             </style>
         </head>
         <body>
@@ -251,7 +253,7 @@ def gerar_analise_lucro_semanal():
         </html>
         """
         
-        # GOVERNANÇA DE I/O
+        # 🚨 GOVERNANÇA DE I/O: Agora ele vai gerar o nome certo!
         try:
             with open(OUTPUT_HTML, 'w', encoding='utf-8') as f:
                 f.write(html_content)
@@ -267,5 +269,4 @@ def gerar_analise_lucro_semanal():
              f.write(f"<html><body><h2>Erro Crítico na Geração do Dashboard de Lucro Semanal</h2><p>Detalhes: {error_message}</p></body></html>")
         
 if __name__ == "__main__":
-    # O UserWarning sobre inferência de formato da data é normal e não impede a execução.
     gerar_analise_lucro_semanal()
