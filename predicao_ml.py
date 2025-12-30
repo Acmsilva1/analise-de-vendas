@@ -11,13 +11,13 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error
 
 # --- CONFIGURAÇÕES DE DADOS (UNIFICADO E CORRIGIDO) ---
-# Assumindo que a planilha de VENDAS tem o ID principal, já que ambas as abas estão nela.
+# ID ÚNICO para a planilha "HISTORICO DE VENDAS E GASTOS"
 ID_PLANILHA_UNICA = "1XWdRbHqY6DWOlSO-oJbBSyOsXmYhM_NEA2_yvWbfq2Y"
 
 ABA_VENDAS = "VENDAS"
-ABA_GASTOS = "GASTOS" # Colunas: DATA E HORA, PRODUTO, QUANTIDADE, VALOR
+ABA_GASTOS = "GASTOS" 
 
-# Colunas (CORRIGIDAS E NOVAS)
+# Colunas (CORRIGIDAS conforme sua planilha)
 COLUNA_VALOR_VENDA = 'VALOR DA VENDA'
 COLUNA_COMPRADOR = 'DADOS DO COMPRADOR' # Para a métrica de Melhor Comprador (Aba VENDAS)
 COLUNA_ITEM_VENDIDO = 'SABORES'       # Para a métrica de Sabor/Produto Mais Vendido (Aba VENDAS)
@@ -37,7 +37,7 @@ def format_brl(value):
 def autenticar_gspread():
     SHEET_CREDENTIALS_JSON = os.environ.get('GCP_SA_CREDENTIALS')
     if not SHEET_CREDENTIALS_JSON:
-        raise ConnectionError("Variável de ambiente 'GCP_SA_CREDENTIALS' não encontrada.")
+        raise ConnectionError("Variável de ambiente 'GCP_SA_CREDENTIALS' não encontrada. O fluxo vai falhar!")
     credentials_dict = json.loads(SHEET_CREDENTIALS_JSON) 
     return gspread.service_account_from_dict(credentials_dict)
 
@@ -120,12 +120,14 @@ def treinar_e_prever(df_mensal):
     X = df_mensal[['Mes_Index']] 
     y = df_mensal['Lucro_Liquido'] 
     
+    # A Magia da Regressão Linear 
     modelo = LinearRegression()
     modelo.fit(X, y)
     
     proximo_mes_index = df_mensal['Mes_Index'].max() + 1
     previsao_proximo_mes = modelo.predict([[proximo_mes_index]])[0]
 
+    # Métrica de Governança de IA: MAE
     predicoes_historicas = modelo.predict(X)
     mae = mean_absolute_error(y, predicoes_historicas)
 
@@ -133,9 +135,8 @@ def treinar_e_prever(df_mensal):
     
     return previsao_proximo_mes, mae, ultimo_lucro_real
 
-# --- NOVO: Função para extrair métricas de Negócio (Agora incluída e com nomes corrigidos) ---
 def analisar_metricas_negocio(df_vendas_bruto):
-    """Calcula o Melhor Comprador e o Sabor Mais Vendido (baseado em receita)."""
+    """Calcula o Melhor Comprador e o Sabor Mais Vendido (baseado em receita), usando os nomes corrigidos."""
     # Verifica a existência das colunas CORRIGIDAS
     if COLUNA_COMPRADOR not in df_vendas_bruto.columns or COLUNA_ITEM_VENDIDO not in df_vendas_bruto.columns:
         print(f"Alerta: Colunas '{COLUNA_COMPRADOR}' ou '{COLUNA_ITEM_VENDIDO}' não encontradas no DF de Vendas.")
@@ -162,7 +163,6 @@ def analisar_metricas_negocio(df_vendas_bruto):
     )
 
     return resultado_comprador, resultado_produto
-# --------------------------------------------------------------------------------
 
 def gerar_tabela_auditoria(df_mensal):
     """Gera o HTML da tabela histórica de Lucro, Vendas e Gastos."""
@@ -227,12 +227,14 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
         </tr>
         """
     # 
+
     html_content = f"""
     <!DOCTYPE html>
     <html>
     <head>
         <title>Dashboard ML Insights - Previsão de Lucro Líquido</title>
          <style>
+            /* --- ESTILOS PADRÃO (LIGHT MODE) --- */
             body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #f4f7f6; color: #333; }}
             .container {{ max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
             h2 {{ color: #6f42c1; border-bottom: 2px solid #6f42c1; padding-bottom: 10px; }}
@@ -240,7 +242,6 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
             .metric-box h3 {{ margin-top: 0; font-size: 1.5em; }}
             .metric-box p {{ font-size: 2.5em; font-weight: bold; }}
             .info-box {{ padding: 10px; border: 1px dashed #ccc; background-color: #f8f9fa; margin-top: 15px; }}
-            
             table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }}
             th, td {{ padding: 10px; border: 1px solid #ddd; text-align: left; }}
             th {{ background-color: #6f42c1; color: white; }}
@@ -251,6 +252,58 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
             .metric-card h4 {{ color: #007bff; margin-top: 0; }}
             .metric-card p {{ font-size: 1.1em; font-weight: bold; color: #333; }}
             .grid-2 {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-top: 20px; }}
+
+            /* --- DARK MODE MAGIC: Usa a preferência do sistema operacional --- */
+            @media (prefers-color-scheme: dark) {{
+                body {{
+                    background-color: #121212; 
+                    color: #e0e0e0; 
+                }}
+                .container {{
+                    background: #1e1e1e; 
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+                }}
+                h2 {{
+                    color: #bb86fc; 
+                    border-bottom-color: #bb86fc;
+                }}
+                .info-box {{
+                    background-color: #2c2c2c;
+                    border-color: #444;
+                }}
+                table {{
+                    border-color: #333;
+                }}
+                th {{
+                    background-color: #3700b3; 
+                    color: white;
+                }}
+                td {{
+                    border-color: #333;
+                }}
+                /* Ajustando cores de lucro/prejuízo no dark mode */
+                .lucro-positivo {{ 
+                    background-color: #1f311f; 
+                    color: #c7ecc7;
+                }} 
+                .lucro-negativo {{ 
+                    background-color: #3b1f1f; 
+                    color: #ffbaba;
+                }} 
+                .metric-card {{ 
+                    background: #2c2c2c; 
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.2); 
+                }}
+                .metric-card h4 {{ 
+                    color: #03dac6; 
+                }}
+                .metric-card p {{ 
+                    color: #e0e0e0; 
+                }}
+                a {{
+                    color: #bb86fc;
+                }}
+            }}
         </style>
     </head>
     <body>
@@ -329,7 +382,7 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
     print(f"Dashboard de ML gerado com sucesso: {OUTPUT_HTML}")
 
 
-# --- EXECUÇÃO PRINCIPAL (CORRIGIDA) ---
+# --- EXECUÇÃO PRINCIPAL (COMPLETA E CORRIGIDA) ---
 if __name__ == "__main__":
     try:
         gc = autenticar_gspread()
@@ -340,10 +393,10 @@ if __name__ == "__main__":
         if not df_mensal.empty:
             previsao, mae, ultimo_lucro_real = treinar_e_prever(df_mensal)
             
-            # NOVO: Calcular Métricas de Negócio
+            # NOVO: Calcular Métricas de Negócio (com colunas corrigidas)
             melhor_comprador, produto_mais_vendido = analisar_metricas_negocio(df_vendas_bruto)
             
-            # Passando todos os argumentos, incluindo as novas métricas
+            # Passando todos os argumentos
             montar_dashboard_ml(
                 previsao, 
                 mae, 
