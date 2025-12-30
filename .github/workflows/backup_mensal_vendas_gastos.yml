@@ -1,12 +1,15 @@
-name: Backup Mensal de Vendas (Consolidação)
+name: BACKUP DE VENDAS E GASTOS
 
 on:
   # 1. Gatilho Manual: Permite que você clique em "Run workflow" para testar.
   workflow_dispatch:
 
-  # 2. Gatilho Agendado: Roda todo dia 1, à 00:01 (Hora UTC).
+  # 2. Gatilhos Agendados (Novo Múltiplo Agendamento)
   schedule:
-    - cron: '1 0 1 * *' 
+    # Roda no dia 1 de cada mês, à 00:01 (Hora UTC).
+    - cron: '1 0 1 * *'
+    # Roda no dia 16 de cada mês, à 00:01 (Hora UTC).
+    - cron: '1 0 16 * *'
 
 jobs:
   run_consolidation:
@@ -24,13 +27,12 @@ jobs:
       - name: 3. Instalar Dependências (gspread)
         run: |
           python -m pip install --upgrade pip
+          # A instalação do gspread e suas dependências
           pip install gspread
 
-      - name: 4. Executar o Script de Consolidação
-        # Nome do arquivo de script: consolidacao_mensal.py
-        run: python consolidacao_mensal.py
+      - name: 4. Executar o Script do Agente de Backup
+        # Alterei o nome aqui para refletir o nome do arquivo que criamos no passo anterior.
+        run: python backup_gastos_despesas_mensal.py
         env:
-          # Mapeamento do Secret:
-          # Esquerda (GSPREAD_SERVICE_ACCOUNT_CREDENTIALS) é o que o script Python espera.
-          # Direita (${{ secrets.GCP_SA_CREDENTIALS }}) é o nome do Secret no GitHub.
+          # Mapeamento do Secret (Crucial para a Autenticação)
           GSPREAD_SERVICE_ACCOUNT_CREDENTIALS: ${{ secrets.GCP_SA_CREDENTIALS }}
