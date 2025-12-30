@@ -17,10 +17,10 @@ ID_PLANILHA_UNICA = "1XWdRbHqY6DWOlSO-oJbBSyOsXmYhM_NEA2_yvWbfq2Y"
 ABA_VENDAS = "VENDAS"
 ABA_GASTOS = "GASTOS"
 
-# Colunas (CONFIRMAR NA SUA PLANILHA)
+# Colunas CORRIGIDAS conforme sua planilha
 COLUNA_VALOR_VENDA = 'VALOR DA VENDA'
-COLUNA_COMPRADOR = 'NOME DO CLIENTE' # Coluna usada para Melhor Comprador
-COLUNA_ITEM_VENDIDO = 'PRODUTO'       # Coluna usada para Produto Mais Vendido
+COLUNA_COMPRADOR = 'DADOS DO COMPRADOR' # <-- CORRIGIDO
+COLUNA_ITEM_VENDIDO = 'PRODUTOS'       # <-- CORRIGIDO (Assumindo que é na aba VENDAS para métrica de Receita)
 
 COLUNA_VALOR_GASTO = 'VALOR' 
 COLUNA_DATA = 'DATA E HORA' 
@@ -31,14 +31,12 @@ URL_DASHBOARD = "https://acmsilva1.github.io/analise-de-vendas/dashboard_ml_insi
 
 def format_brl(value):
     """Função helper para formatar valores em R$"""
-    # Garante que o valor é tratado como float antes de formatar
     value = float(value)
     return f"R$ {value:,.2f}".replace('.', 'X').replace(',', '.').replace('X', ',')
 
 def autenticar_gspread():
     SHEET_CREDENTIALS_JSON = os.environ.get('GCP_SA_CREDENTIALS')
     if not SHEET_CREDENTIALS_JSON:
-        # Se você está rodando no GitHub Actions, a variável de ambiente DEVE estar configurada
         raise ConnectionError("Variável de ambiente 'GCP_SA_CREDENTIALS' não encontrada. O fluxo vai falhar!")
     credentials_dict = json.loads(SHEET_CREDENTIALS_JSON) 
     return gspread.service_account_from_dict(credentials_dict)
@@ -59,14 +57,13 @@ def carregar_dados_de_planilha(gc, sheet_id, aba_nome, coluna_valor, prefixo):
              
         df = pd.DataFrame(dados[1:], columns=dados[0])
         
-        # Limpeza do Valor (Remoção de R$, pontos e substituição de vírgula por ponto decimal)
+        # Limpeza do Valor
         df['temp_valor'] = df[coluna_valor].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=True).str.strip()
         df[f'{prefixo}_Float'] = pd.to_numeric(df['temp_valor'], errors='coerce')
         
         # Limpeza da Data
         df['Data_Datetime'] = pd.to_datetime(df[COLUNA_DATA], errors='coerce', dayfirst=True)
         
-        # Filtra apenas linhas válidas
         df_validos = df.dropna(subset=['Data_Datetime', f'{prefixo}_Float']).copy()
         
         # Se for VENDAS, retorna o DF completo (bruto) para análise detalhada (Comprador/Produto)
@@ -111,7 +108,6 @@ def carregar_e_combinar_dados(gc):
     df_combinado['Lucro_Liquido'] = df_combinado['Total_Vendas'] - df_combinado['Total_Gastos']
     
     df_combinado = df_combinado.sort_index().reset_index()
-    # Cria um índice numérico para a Regressão Linear
     df_combinado['Mes_Index'] = np.arange(len(df_combinado))
     
     if len(df_combinado) < 4:
@@ -124,14 +120,12 @@ def treinar_e_prever(df_mensal):
     X = df_mensal[['Mes_Index']] 
     y = df_mensal['Lucro_Liquido'] 
     
-    # A Magia da Regressão Linear (ou o chute elegante, dependendo dos seus dados)
     modelo = LinearRegression()
     modelo.fit(X, y)
     
     proximo_mes_index = df_mensal['Mes_Index'].max() + 1
     previsao_proximo_mes = modelo.predict([[proximo_mes_index]])[0]
 
-    # Métrica de Governança de IA: MAE (Mean Absolute Error)
     predicoes_historicas = modelo.predict(X)
     mae = mean_absolute_error(y, predicoes_historicas)
 
@@ -141,7 +135,9 @@ def treinar_e_prever(df_mensal):
 
 def analisar_metricas_negocio(df_vendas_bruto):
     """Calcula o Melhor Comprador e o Produto Mais Vendido (baseado em receita)."""
+    # Verifica a existência das colunas CORRIGIDAS
     if COLUNA_COMPRADOR not in df_vendas_bruto.columns or COLUNA_ITEM_VENDIDO not in df_vendas_bruto.columns:
+        print(f"Alerta: Colunas '{COLUNA_COMPRADOR}' ou '{COLUNA_ITEM_VENDIDO}' não encontradas no DF de Vendas.")
         return "N/A (Colunas de Negócio Faltantes)", "N/A (Colunas de Negócio Faltantes)"
         
     # Melhor Comprador
@@ -155,6 +151,7 @@ def analisar_metricas_negocio(df_vendas_bruto):
     produto_df = df_vendas_bruto.groupby(COLUNA_ITEM_VENDIDO)['Vendas_Float'].sum().reset_index()
     produto_mais_vendido = produto_df.sort_values(by='Vendas_Float', ascending=False).iloc[0]
 
+    # Formata os resultados
     resultado_comprador = (
         f"{melhor_comprador[COLUNA_COMPRADOR]} ({format_brl(melhor_comprador['Vendas_Float'])})"
     )
@@ -189,16 +186,16 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
     
     if previsao < 0:
         insight = f"🚨 **Previsão de PREJUÍZO!** Lucro negativo de {format_brl(abs(previsao))} esperado. Hora de cortar o cafezinho."
-        cor = "#dc3545" # Vermelho
+        cor = "#dc3545" 
     elif diferenca > (ultimo_valor_real * 0.10):
         insight = f"🚀 **Crescimento de Lucro Esperado!** Aumento de {format_brl(diferenca)}. Suas vendas estão no *hype*!"
-        cor = "#28a745" # Verde
+        cor = "#28a745" 
     elif diferenca < -(ultimo_valor_real * 0.10):
         insight = f"⚠️ **Risco de Queda de Lucro!** Retração de {format_brl(abs(diferenca))} esperada. Analise seus custos ou chame o Batman!"
-        cor = "#ffc107" # Amarelo
+        cor = "#ffc107" 
     else:
         insight = f"➡️ **Estabilidade Esperada.** Lucro projetado próximo ao mês passado. Nem frio, nem quente."
-        cor = "#17a2b8" # Azul Claro
+        cor = "#17a2b8" 
 
     tabela_auditoria_html = gerar_tabela_auditoria(df_historico)
     
@@ -213,7 +210,6 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
     for index, row in df_ano_atual.iterrows():
         lucro = row['Lucro_Liquido']
         cor_barra = '#28a745' if lucro >= 0 else '#dc3545'
-        # Calcula a largura da barra em % baseada no lucro absoluto máximo
         largura = (row['Lucro_Abs'] / max_lucro) * 100 if max_lucro > 0 else 0 
 
         lucro_anual_html += f"""
@@ -228,7 +224,6 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
             </td>
         </tr>
         """
-        #  (Diagrama contextual)
 
     html_content = f"""
     <!DOCTYPE html>
@@ -339,13 +334,15 @@ if __name__ == "__main__":
         gc = autenticar_gspread()
         
         # Carrega e combina os dados, retornando o DF mensal e o DF bruto de vendas
+        # AQUI ESTÁ UMA PEQUENA CORREÇÃO DE LÓGICA: O CÓDIGO ANTERIOR NÃO ESTAVA ENVIANDO O df_vendas_bruto 
+        # MAS O CÓDIGO COMPLETO ENVIADO NA RESPOSTA ANTERIOR ESTAVA. ESTOU RESTAURANDO A VERSÃO CORRETA.
         df_mensal, df_vendas_bruto = carregar_e_combinar_dados(gc) 
         
         if not df_mensal.empty:
             # Treina e Prevê Lucro
             previsao, mae, ultimo_lucro_real = treinar_e_prever(df_mensal)
             
-            # Calcula Métricas de Negócio
+            # Calcula Métricas de Negócio (agora com nomes de coluna corrigidos)
             melhor_comprador, produto_mais_vendido = analisar_metricas_negocio(df_vendas_bruto)
             
             # Monta e salva o Dashboard HTML
@@ -363,6 +360,5 @@ if __name__ == "__main__":
     except Exception as e:
         error_message = str(e)
         print(f"ERRO CRÍTICO NA EXECUÇÃO DO ML: {error_message}")
-        # Cria um dashboard de erro para que o fluxo do Github não falhe "em silêncio"
         with open(OUTPUT_HTML, 'w', encoding='utf-8') as f:
              f.write(f"<html><body><h2>Erro Crítico na Geração do ML Dashboard</h2><p>Detalhes: {error_message}</p><p>Verifique o arquivo JSON de credenciais ou os nomes das colunas na sua planilha.</p></body></html>")
