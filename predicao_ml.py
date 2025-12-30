@@ -169,7 +169,8 @@ def gerar_tabela_auditoria(df_mensal):
     table_rows = ""
     for index, row in df_mensal.iterrows():
         lucro = row['Lucro_Liquido']
-        lucro_class = 'lucro-positivo' if lucro >= 0 else 'lucro-negativo'
+        # Usaremos as classes do Dark Mode aqui
+        lucro_class = 'lucro-positivo-dark' if lucro >= 0 else 'lucro-negativo-dark'
         
         table_rows += f"""
         <tr class="{lucro_class}">
@@ -186,18 +187,22 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
     # Lógica de Classificação do Insight
     diferenca = previsao - ultimo_valor_real
     
+    # Cores de box adaptadas ao Dark Mode (Background escuro, texto claro)
     if previsao < 0:
         insight = f"🚨 **Previsão de PREJUÍZO!** Lucro negativo de {format_brl(abs(previsao))} esperado. Hora de cortar o cafezinho."
-        cor = "#dc3545" 
+        cor = "#9c0000" # Vermelho escuro
     elif diferenca > (ultimo_valor_real * 0.10):
         insight = f"🚀 **Crescimento de Lucro Esperado!** Aumento de {format_brl(diferenca)}. Suas vendas estão no *hype*!"
-        cor = "#28a745" 
+        cor = "#006400" # Verde escuro
     elif diferenca < -(ultimo_valor_real * 0.10):
         insight = f"⚠️ **Risco de Queda de Lucro!** Retração de {format_brl(abs(diferenca))} esperada. Analise seus custos ou chame o Batman!"
-        cor = "#ffc107" 
+        cor = "#b8860b" # Amarelo escuro (Goldenrod)
     else:
         insight = f"➡️ **Estabilidade Esperada.** Lucro projetado próximo ao mês passado. Nem frio, nem quente."
-        cor = "#17a2b8" 
+        cor = "#005a8d" # Azul escuro
+    
+    # Se a cor do box for muito escura, vamos garantir que o texto dentro seja branco:
+    texto_box_cor = "white"
 
     tabela_auditoria_html = gerar_tabela_auditoria(df_historico)
     
@@ -211,14 +216,14 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
 
     for index, row in df_ano_atual.iterrows():
         lucro = row['Lucro_Liquido']
-        cor_barra = '#28a745' if lucro >= 0 else '#dc3545'
+        cor_barra = '#006400' if lucro >= 0 else '#9c0000' # Barras verdes escuras ou vermelhas escuras
         largura = (row['Lucro_Abs'] / max_lucro) * 100 if max_lucro > 0 else 0 
 
         lucro_anual_html += f"""
         <tr>
             <td>{row['Mes_Ano'].strftime('%b/%Y')}</td>
             <td>
-                <div style="background-color: #eee; border-radius: 4px; overflow: hidden; height: 20px; text-align: left;">
+                <div style="background-color: #2c2c2c; border-radius: 4px; overflow: hidden; height: 20px; text-align: left;">
                     <div style="width: {largura}%; background-color: {cor_barra}; height: 100%; text-align: right; line-height: 20px; color: white; padding-right: 5px; box-sizing: border-box;">
                         {format_brl(lucro)}
                     </div>
@@ -226,84 +231,40 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
             </td>
         </tr>
         """
-    # 
-
+    
     html_content = f"""
     <!DOCTYPE html>
     <html>
     <head>
         <title>Dashboard ML Insights - Previsão de Lucro Líquido</title>
          <style>
-            /* --- ESTILOS PADRÃO (LIGHT MODE) --- */
-            body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #f4f7f6; color: #333; }}
-            .container {{ max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
-            h2 {{ color: #6f42c1; border-bottom: 2px solid #6f42c1; padding-bottom: 10px; }}
-            .metric-box {{ padding: 20px; margin-bottom: 20px; border-radius: 8px; background-color: {cor}; color: white; text-align: center; }}
+            /* --- ESTILOS DARK MODE EXCLUSIVO --- */
+            body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #121212; color: #e0e0e0; }}
+            .container {{ max-width: 900px; margin: auto; background: #1e1e1e; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }}
+            h2 {{ color: #bb86fc; border-bottom: 2px solid #bb86fc; padding-bottom: 10px; }}
+            
+            /* Metric Box (Cor baseada na previsão) */
+            .metric-box {{ padding: 20px; margin-bottom: 20px; border-radius: 8px; background-color: {cor}; color: {texto_box_cor}; text-align: center; }}
             .metric-box h3 {{ margin-top: 0; font-size: 1.5em; }}
             .metric-box p {{ font-size: 2.5em; font-weight: bold; }}
-            .info-box {{ padding: 10px; border: 1px dashed #ccc; background-color: #f8f9fa; margin-top: 15px; }}
+            
+            .info-box {{ padding: 10px; border: 1px dashed #444; background-color: #2c2c2c; margin-top: 15px; }}
+            
             table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }}
-            th, td {{ padding: 10px; border: 1px solid #ddd; text-align: left; }}
-            th {{ background-color: #6f42c1; color: white; }}
-            .lucro-positivo {{ background-color: #e6ffe6; }} 
-            .lucro-negativo {{ background-color: #ffe6e6; }} 
+            th, td {{ padding: 10px; border: 1px solid #333; text-align: left; }}
+            th {{ background-color: #3700b3; color: white; }}
+            
+            /* Cores de Fundo da Tabela no Dark Mode */
+            .lucro-positivo-dark {{ background-color: #1f311f; color: #c7ecc7; }} 
+            .lucro-negativo-dark {{ background-color: #3b1f1f; color: #ffbaba; }} 
+            
             .text-negativo {{ color: red; font-weight: bold; }}
-            .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-top: 10px; }}
-            .metric-card h4 {{ color: #007bff; margin-top: 0; }}
-            .metric-card p {{ font-size: 1.1em; font-weight: bold; color: #333; }}
+            
+            .metric-card {{ background: #2c2c2c; padding: 15px; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); margin-top: 10px; }}
+            .metric-card h4 {{ color: #03dac6; margin-top: 0; }}
+            .metric-card p {{ font-size: 1.1em; font-weight: bold; color: #e0e0e0; }}
             .grid-2 {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-top: 20px; }}
-
-            /* --- DARK MODE MAGIC: Usa a preferência do sistema operacional --- */
-            @media (prefers-color-scheme: dark) {{
-                body {{
-                    background-color: #121212; 
-                    color: #e0e0e0; 
-                }}
-                .container {{
-                    background: #1e1e1e; 
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-                }}
-                h2 {{
-                    color: #bb86fc; 
-                    border-bottom-color: #bb86fc;
-                }}
-                .info-box {{
-                    background-color: #2c2c2c;
-                    border-color: #444;
-                }}
-                table {{
-                    border-color: #333;
-                }}
-                th {{
-                    background-color: #3700b3; 
-                    color: white;
-                }}
-                td {{
-                    border-color: #333;
-                }}
-                /* Ajustando cores de lucro/prejuízo no dark mode */
-                .lucro-positivo {{ 
-                    background-color: #1f311f; 
-                    color: #c7ecc7;
-                }} 
-                .lucro-negativo {{ 
-                    background-color: #3b1f1f; 
-                    color: #ffbaba;
-                }} 
-                .metric-card {{ 
-                    background: #2c2c2c; 
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.2); 
-                }}
-                .metric-card h4 {{ 
-                    color: #03dac6; 
-                }}
-                .metric-card p {{ 
-                    color: #e0e0e0; 
-                }}
-                a {{
-                    color: #bb86fc;
-                }}
-            }}
+            a {{ color: #bb86fc; }}
         </style>
     </head>
     <body>
