@@ -1,17 +1,17 @@
 name: Gerar Previsão de Vendas (Machine Learning) 🔮
 
 on:
-  # Roda no dia 1 de cada mês (após o backup e a análise histórica)
-  schedule:
-    - cron: '0 6 1 * *' 
-  
-  # Execução Manual
+  # 1. ATIVAÇÃO MANUAL (Botão "Run workflow" na aba Actions)
   workflow_dispatch:
     inputs:
       motivo:
-        description: 'Motivo da execução manual'
+        description: 'Motivo da execução manual (e.g., Teste ARIMA, Validação de Dados)'
         required: false
-        default: 'Teste de modelo de ML'
+        default: 'Ativação manual para análise de qualidade de IA.'
+  
+  # 2. ATIVAÇÃO AGENDADA (Roda no dia 1 de cada mês)
+  schedule:
+    - cron: '0 6 1 * *' 
 
 jobs:
   build_ml:
@@ -29,10 +29,9 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Instalar Dependências (NOVO: Agora com Statsmodels para ARIMA)
+      - name: Instalar Dependências (Com Statsmodels para ARIMA)
         run: |
-          # A instalação anterior estava incorreta. 
-          # Instalamos apenas os pacotes necessários: pandas, gspread e statsmodels.
+          # Instala os pacotes necessários para pandas, gspread e o modelo ARIMA.
           pip install pandas gspread statsmodels 
 
       - name: Executar o Modelo de Previsão
@@ -42,7 +41,10 @@ jobs:
           python predicao_ml.py
 
       - name: Commit e Push do Dashboard de ML
+        # O commit agora incluirá o motivo da execução manual (se houver) no corpo da mensagem.
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "Atualização automática do Dashboard de Previsão ML (Modelo ARIMA)"
+          # Adiciona o motivo da execução manual ao corpo do commit
+          commit_body: "Motivo da Execução: ${{ github.event.inputs.motivo || 'Execução agendada/padrão.' }}"
           file_pattern: dashboard_ml_insights.html
