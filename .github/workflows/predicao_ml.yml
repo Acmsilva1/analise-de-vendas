@@ -1,7 +1,7 @@
 name: Gerar Previsão de Vendas (Machine Learning) 🔮
 
 on:
-  # 1. ATIVAÇÃO MANUAL (Botão "Run workflow" na aba Actions)
+  # 1. ATIVAÇÃO MANUAL (Este é o botão "Run workflow" na aba Actions do GitHub)
   workflow_dispatch:
     inputs:
       motivo:
@@ -29,9 +29,11 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Instalar Dependências (AGORA SIM: ARIMA + MAE)
+      - name: Instalar Dependências (ARIMA, GSpread e MAE)
         run: |
-          # Instalamos pandas, gspread, statsmodels (para ARIMA) e scikit-learn (para o cálculo do MAE)
+          # Instala os pacotes necessários:
+          # statsmodels (para o ARIMA)
+          # scikit-learn (para o cálculo do mean_absolute_error)
           pip install pandas gspread statsmodels scikit-learn 
 
       - name: Executar o Modelo de Previsão
