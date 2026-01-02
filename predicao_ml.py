@@ -10,14 +10,13 @@ from gspread.exceptions import WorksheetNotFound, APIError
 from sklearn.linear_model import LinearRegression 
 from sklearn.metrics import mean_absolute_error
 
-# --- CONFIGURAÇÕES DE DADOS ---
-# ID ÚNICO da planilha que deve ser acessada (já verificado)
+# --- CONFIGURAÇÕES DE DADOS E GOVERNANÇA (TOLERÂNCIA DE ERRO) ---
 ID_PLANILHA_UNICA = "1XWdRbHqY6DWOlSO-oJbBSyOsXmYhM_NEA2_yvWbfq2Y"
 
 ABA_VENDAS = "VENDAS"
 ABA_GASTOS = "GASTOS" 
 
-# Colunas
+# Colunas (CORRIGIDAS)
 COLUNA_VALOR_VENDA = 'VALOR DA VENDA'
 COLUNA_COMPRADOR = 'DADOS DO COMPRADOR' 
 COLUNA_ITEM_VENDIDO = 'SABORES'       
@@ -27,6 +26,10 @@ COLUNA_DATA = 'DATA E HORA'
 
 OUTPUT_HTML = "dashboard_ml_insights.html"
 URL_DASHBOARD = "https://acmsilva1.github.io/analise-de-vendas/dashboard_ml_insights.html" 
+
+# NOVO: LIMITE DE GOVERNANÇA DE IA - 
+# Se o Erro Absoluto Médio (MAE) for maior que 15% do Lucro Médio Histórico, o modelo é questionável.
+TOLERANCIA_MAE_PERCENTUAL = 0.15 
 # --------------------------------------------------------------------------------
 
 def format_brl(value):
@@ -43,8 +46,8 @@ def autenticar_gspread():
 
 def carregar_dados_de_planilha(gc, sheet_id, aba_nome, coluna_valor, prefixo):
     """
-    Carrega os dados da aba. Implementa a correção de governança para 
-    capturar especificamente o erro de WorksheetNotFound ou 404.
+    Carrega os dados da aba. Retorna o DF Bruto para VENDAS ou o DF Agrupado Mensal para GASTOS.
+    Inclui tratamento de erro WorksheetNotFound.
     """
     print(f"DEBUG: Carregando dados: ID={sheet_id}, Aba={aba_nome}")
     try:
@@ -66,7 +69,6 @@ def carregar_dados_de_planilha(gc, sheet_id, aba_nome, coluna_valor, prefixo):
         
         df_validos = df.dropna(subset=['Data_Datetime', f'{prefixo}_Float']).copy()
         
-        # Se for VENDAS, retorna o DF BRUTO
         if aba_nome == ABA_VENDAS:
              return df_validos
         
@@ -78,7 +80,6 @@ def carregar_dados_de_planilha(gc, sheet_id, aba_nome, coluna_valor, prefixo):
         return df_mensal.set_index('Mes_Ano')
         
     except WorksheetNotFound:
-        # CORREÇÃO CRÍTICA APLICADA: Tratamento específico do erro 404/aba
         print(f"ERRO CRÍTICO: Aba '{aba_nome}' não encontrada! Verifique se está em MAIÚSCULAS.")
         return pd.DataFrame() 
     except Exception as e:
@@ -138,7 +139,7 @@ def treinar_e_prever(df_mensal):
 def analisar_metricas_negocio(df_vendas_bruto, ano_foco):
     """
     Calcula o Melhor Comprador e o Sabor Mais Vendido (baseado em receita),
-    FILTRANDO apenas para o ano de foco.
+    FILTRANDO apenas para o ano de foco. (CORREÇÃO DE FLUXO)
     """
     df_filtrado = df_vendas_bruto[
         df_vendas_bruto['Data_Datetime'].dt.year == ano_foco
@@ -179,6 +180,7 @@ def gerar_tabela_auditoria(df_mensal):
         lucro = row['Lucro_Liquido']
         lucro_class = 'lucro-positivo-dark' if lucro >= 0 else 'lucro-negativo-dark'
         
+        # Formata o Mes_Ano para YYYY-MM
         mes_formatado = row['Mes_Ano'].strftime('%Y-%m')
         
         table_rows += f"""
@@ -239,27 +241,40 @@ def gerar_html_balanco_grafico(df_dados, titulo_secao):
 
 def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_comprador_atual, produto_mais_vendido_atual, melhor_comprador_ant, produto_mais_vendido_ant, ano_ant, ano_atual):
     
-    # Lógica de Classificação do Insight
+    # Lógica de Classificação do Insight da Previsão
     diferenca = previsao - ultimo_valor_real
     
+    # Cores de box adaptadas ao Dark Mode 
     if previsao < 0:
         insight = f"🚨 **Previsão de PREJUÍZO!** Lucro negativo de {format_brl(abs(previsao))} esperado. Hora de cortar o cafezinho."
-        cor = "#9c0000" 
+        cor = "#9c0000" # Vermelho escuro
     elif diferenca > (ultimo_valor_real * 0.10):
         insight = f"🚀 **Crescimento de Lucro Esperado!** Aumento de {format_brl(diferenca)}. Suas vendas estão no *hype*!"
-        cor = "#006400" 
+        cor = "#006400" # Verde escuro
     elif diferenca < -(ultimo_valor_real * 0.10):
         insight = f"⚠️ **Risco de Queda de Lucro!** Retração de {format_brl(abs(diferenca))} esperada. Analise seus custos ou chame o Batman!"
-        cor = "#b8860b" 
+        cor = "#b8860b" # Amarelo escuro (Goldenrod)
     else:
         insight = f"➡️ **Estabilidade Esperada.** Lucro projetado próximo ao mês passado. Nem frio, nem quente."
-        cor = "#005a8d" 
+        cor = "#005a8d" # Azul escuro
     
     texto_box_cor = "white"
 
     tabela_auditoria_html = gerar_tabela_auditoria(df_historico)
     
-    # --- FILTRAGEM PARA GRÁFICOS DE BALANÇO ---
+    # --- GOVERNANÇA DE IA: ANÁLISE DO MAE (O NOVO SARGENTO DO CONTROLE) ---
+    lucro_liquido_medio = df_historico['Lucro_Liquido'].mean()
+    limite_mae = abs(lucro_liquido_medio * TOLERANCIA_MAE_PERCENTUAL)
+    
+    # Lógica de Alerta
+    if mae > limite_mae:
+        mae_status = f"🚨 **MAE ALTO!** O erro médio ({format_brl(mae)}) é maior que a tolerância de {format_brl(limite_mae)}. O modelo está apenas dando um palpite chique."
+        mae_cor = "red" 
+    else:
+        mae_status = f"✅ **MAE ACEITÁVEL.** O erro médio está dentro da margem de {format_brl(limite_mae)}. Siga usando, mas monitore!"
+        mae_cor = "#006400" # Verde escuro
+    
+    # --- GERAÇÃO DOS GRÁFICOS DE BALANÇO ---
     df_balanco_anterior = df_historico[df_historico['Mes_Ano'].dt.year == ano_ant].copy()
     html_balanco_anterior = gerar_html_balanco_grafico(df_balanco_anterior, f"o Ano de {ano_ant}")
 
@@ -316,11 +331,11 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
                 <p>{insight}</p>
             </div>
 
-            <div class="info-box">
+            <div class="info-box" style="border: 1px dashed {mae_cor};">
                 <h4>Métricas de Qualidade (Governança de IA)</h4>
                 <p>Lucro Real Mês Passado: **{format_brl(ultimo_valor_real)}**</p>
                 <p>Erro Absoluto Médio Histórico (MAE): **{format_brl(mae)}**</p>
-                <p>A governança de IA exige que você monitore o MAE: quanto menor, melhor a previsão histórica. </p>
+                <p style="color: {mae_cor}; font-weight: bold;">Status da Governança: {mae_status}</p>
             </div>
             
             <hr style="margin-top: 30px; border-color: #3700b3;">
@@ -404,10 +419,10 @@ if __name__ == "__main__":
 
             previsao, mae, ultimo_lucro_real = treinar_e_prever(df_mensal)
             
-            # KPI 1: Métricas de Negócio (Ano Corrente - 2026)
+            # KPI 1: Métricas de Negócio (Ano Corrente)
             melhor_comprador_atual, produto_mais_vendido_atual = analisar_metricas_negocio(df_vendas_bruto, ano_atual)
             
-            # KPI 2: Métricas de Negócio (Ano Anterior - 2025) - O BAÚ DE MEMÓRIAS!
+            # KPI 2: Métricas de Negócio (Ano Anterior - BAÚ DE MEMÓRIAS)
             melhor_comprador_ant, produto_mais_vendido_ant = analisar_metricas_negocio(df_vendas_bruto, ano_ant)
 
             montar_dashboard_ml(
@@ -428,6 +443,5 @@ if __name__ == "__main__":
     except Exception as e:
         error_message = str(e)
         print(f"ERRO CRÍTICO NA EXECUÇÃO DO ML: {error_message}")
-        # Geração de arquivo de erro para governança
         with open(OUTPUT_HTML, 'w', encoding='utf-8') as f:
-             f.write(f"<html><body><h2>Erro Crítico na Geração do ML Dashboard</h2><p>Detalhes: {error_message}</p><p>Ação: Verifique o ID da Planilha, as permissões de acesso do Service Account ({os.environ.get('GCP_SA_CREDENTIALS')}), ou os nomes das abas/colunas: VENDAS e GASTOS.</p></body></html>")
+             f.write(f"<html><body><h2>Erro Crítico na Geração do ML Dashboard</h2><p>Detalhes: {error_message}</p><p>Ação: Verifique o ID da Planilha, as permissões de acesso do Service Account, ou os nomes das abas/colunas: VENDAS e GASTOS.</p></body></html>")
