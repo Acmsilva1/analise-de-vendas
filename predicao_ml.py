@@ -7,10 +7,8 @@ import json
 from gspread.exceptions import WorksheetNotFound, APIError 
 
 # --- Adicionando as bibliotecas de Machine Learning ---
-# NOVO: ARIMA para previsão de Séries Temporais
 from statsmodels.tsa.arima.model import ARIMA 
 from sklearn.metrics import mean_absolute_error 
-# Não precisamos mais da LinearRegression
 
 # --- CONFIGURAÇÕES DE DADOS E GOVERNANÇA (TOLERÂNCIA DE ERRO) ---
 ID_PLANILHA_UNICA = "1XWdRbHqY6DWOlSO-oJbBSyOsXmYhM_NEA2_yvWbfq2Y"
@@ -140,7 +138,6 @@ def treinar_e_prever(df_mensal):
     previsao_proximo_mes = forecast_result.predicted_mean.iloc[0]
 
     # 4. Cálculo do MAE (usando a previsão histórica)
-    # A previsão começa no segundo ponto (d=1)
     predicoes_historicas = modelo_fit.predict(start=ts.index[1], end=ts.index[-1], dynamic=False)
     
     y_real = ts.loc[predicoes_historicas.index]
@@ -332,7 +329,7 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
             <div class="info-box" style="border: 1px dashed {mae_cor};">
                 <h4>Métricas de Qualidade (Governança de IA)</h4>
                 <p>Lucro Real Mês Passado: **{format_brl(ultimo_valor_real)}**</p>
-                <p>Erro Absoluto Médio Histórico (MAE): **{format_bl(mae)}**</p>
+                <p>Erro Absoluto Médio Histórico (MAE): **{format_brl(mae)}**</p> 
                 <p style="color: {mae_cor}; font-weight: bold;">Status da Governança: {mae_status}</p>
             </div>
             
