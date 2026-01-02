@@ -1,5 +1,4 @@
 gspread
 pandas
-statsmodels
 numpy
 scikit-learn
