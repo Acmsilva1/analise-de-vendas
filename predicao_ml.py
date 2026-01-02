@@ -7,9 +7,10 @@ import json
 from gspread.exceptions import WorksheetNotFound, APIError 
 
 # --- Adicionando as bibliotecas de Machine Learning ---
-# Agora usaremos o statsmodels para ARIMA
-from statsmodels.tsa.arima.model import ARIMA # <--- NOVO
-from sklearn.metrics import mean_absolute_error # Mantemos o MAE da sklearn para métrica
+# NOVO: ARIMA para previsão de Séries Temporais
+from statsmodels.tsa.arima.model import ARIMA 
+from sklearn.metrics import mean_absolute_error 
+# Não precisamos mais da LinearRegression
 
 # --- CONFIGURAÇÕES DE DADOS E GOVERNANÇA (TOLERÂNCIA DE ERRO) ---
 ID_PLANILHA_UNICA = "1XWdRbHqY6DWOlSO-oJbBSyOsXmYhM_NEA2_yvWbfq2Y"
@@ -17,18 +18,17 @@ ID_PLANILHA_UNICA = "1XWdRbHqY6DWOlSO-oJbBSyOsXmYhM_NEA2_yvWbfq2Y"
 ABA_VENDAS = "VENDAS"
 ABA_GASTOS = "GASTOS" 
 
-# Colunas (CORRIGIDAS)
+# Colunas
 COLUNA_VALOR_VENDA = 'VALOR DA VENDA'
 COLUNA_COMPRADOR = 'DADOS DO COMPRADOR' 
 COLUNA_ITEM_VENDIDO = 'SABORES'       
-
 COLUNA_VALOR_GASTO = 'VALOR' 
 COLUNA_DATA = 'DATA E HORA' 
 
 OUTPUT_HTML = "dashboard_ml_insights.html"
 URL_DASHBOARD = "https://acmsilva1.github.io/analise-de-vendas/dashboard_ml_insights.html" 
 
-# LIMITE DE GOVERNANÇA DE IA - 
+# LIMITE DE GOVERNANÇA DE IA - 15% de tolerância de erro médio absoluto
 TOLERANCIA_MAE_PERCENTUAL = 0.15 
 # --------------------------------------------------------------------------------
 
@@ -46,9 +46,8 @@ def autenticar_gspread():
 
 def carregar_dados_de_planilha(gc, sheet_id, aba_nome, coluna_valor, prefixo):
     """
-    Carrega os dados da aba. Retorna o DF Bruto para VENDAS ou o DF Agrupado Mensal para GASTOS.
+    Carrega os dados da aba. Inclui tratamento de erro WorksheetNotFound.
     """
-    print(f"DEBUG: Carregando dados: ID={sheet_id}, Aba={aba_nome}")
     try:
         planilha = gc.open_by_key(sheet_id).worksheet(aba_nome)
         dados = planilha.get_all_values()
@@ -79,7 +78,7 @@ def carregar_dados_de_planilha(gc, sheet_id, aba_nome, coluna_valor, prefixo):
         return df_mensal.set_index('Mes_Ano')
         
     except WorksheetNotFound:
-        print(f"ERRO CRÍTICO: Aba '{aba_nome}' não encontrada! Verifique se está em MAIÚSCULAS.")
+        print(f"ERRO CRÍTICO: Aba '{aba_nome}' não encontrada!")
         return pd.DataFrame() 
     except Exception as e:
         print(f"ERRO ao carregar {aba_nome}: {e}")
@@ -111,7 +110,7 @@ def carregar_e_combinar_dados(gc):
     
     # Prepara o índice para o ARIMA: PeriodIndex é convertido para DatetimeIndex
     df_combinado = df_combinado.sort_index()
-    df_combinado['Mes_Ano'] = df_combinado.index.to_timestamp(freq='M') # Cria a coluna com a data final do mês
+    df_combinado['Mes_Ano'] = df_combinado.index.to_timestamp(freq='M') 
 
     df_combinado = df_combinado.reset_index(drop=True)
     
@@ -122,20 +121,17 @@ def carregar_e_combinar_dados(gc):
 
 def treinar_e_prever(df_mensal):
     """
-    Treina o modelo ARIMA(1, 1, 0) (em vez de Regressão Linear) e faz a previsão.
+    Treina o modelo ARIMA(1, 1, 0) e faz a previsão.
     """
     # 1. Configurar Série Temporal (Indexada pelo tempo)
     ts = df_mensal.set_index('Mes_Ano')['Lucro_Liquido']
     
     # 2. Treinar o Modelo ARIMA(1, 1, 0)
-    # Por ter apenas 6 pontos, usamos ARIMA em vez de SARIMA (sem sazonalidade S=12)
-    print("DEBUG: Treinando modelo ARIMA(1, 1, 0)...")
     try:
         modelo = ARIMA(ts, order=(1, 1, 0))
         modelo_fit = modelo.fit()
-    except Exception as e:
-        print(f"ALERTA: Falha ao treinar ARIMA. Tentando ARIMA(0, 1, 0) - Random Walk. Erro: {e}")
-        # Tenta um modelo mais simples em caso de erro (modelo Random Walk)
+    except Exception:
+        # Tenta um modelo mais simples (Random Walk) em caso de erro.
         modelo = ARIMA(ts, order=(0, 1, 0))
         modelo_fit = modelo.fit()
 
@@ -144,25 +140,18 @@ def treinar_e_prever(df_mensal):
     previsao_proximo_mes = forecast_result.predicted_mean.iloc[0]
 
     # 4. Cálculo do MAE (usando a previsão histórica)
-    # A previsão começa no segundo ponto (d=1) e termina no último ponto (para calcular o erro in-sample)
+    # A previsão começa no segundo ponto (d=1)
     predicoes_historicas = modelo_fit.predict(start=ts.index[1], end=ts.index[-1], dynamic=False)
     
-    y_real = ts.loc[predicoes_historicas.index] # Garante que os índices coincidam
+    y_real = ts.loc[predicoes_historicas.index]
     mae = mean_absolute_error(y_real, predicoes_historicas)
     
     ultimo_lucro_real = ts.iloc[-1]
     
     return previsao_proximo_mes, mae, ultimo_lucro_real
 
-# (As funções analisar_metricas_negocio, gerar_tabela_auditoria, gerar_html_balanco_grafico e montar_dashboard_ml
-# permanecem inalteradas, pois o fluxo de dados e a geração de HTML são os mesmos.
-# Apenas a lógica de ML foi alterada.)
-
 def analisar_metricas_negocio(df_vendas_bruto, ano_foco):
-    """
-    Calcula o Melhor Comprador e o Sabor Mais Vendido (baseado em receita),
-    FILTRANDO apenas para o ano de foco.
-    """
+    """Calcula KPIs de negócio filtrando pelo ano de foco."""
     df_filtrado = df_vendas_bruto[
         df_vendas_bruto['Data_Datetime'].dt.year == ano_foco
     ].copy()
@@ -170,25 +159,22 @@ def analisar_metricas_negocio(df_vendas_bruto, ano_foco):
     if df_filtrado.empty:
         return f"N/A ({ano_foco} sem dados)", f"N/A ({ano_foco} sem dados)"
         
+    # Verifica a existência das colunas
     if COLUNA_COMPRADOR not in df_filtrado.columns or COLUNA_ITEM_VENDIDO not in df_filtrado.columns:
         return "N/A (Colunas Faltantes)", "N/A (Colunas Faltantes)"
         
     # Melhor Comprador
     comprador_df = df_filtrado.groupby(COLUNA_COMPRADOR)['Vendas_Float'].sum().reset_index()
-    if comprador_df.empty:
-        return "N/A (Dados vazios)", "N/A (Dados vazios)"
-        
+    if comprador_df.empty: return "N/A (Dados vazios)", "N/A (Dados vazios)"
     melhor_comprador = comprador_df.sort_values(by='Vendas_Float', ascending=False).iloc[0]
     
     # Sabor/Produto Mais Vendido
     produto_df = df_filtrado.groupby(COLUNA_ITEM_VENDIDO)['Vendas_Float'].sum().reset_index()
     produto_mais_vendido = produto_df.sort_values(by='Vendas_Float', ascending=False).iloc[0]
 
-    # Formata os resultados
     resultado_comprador = (
         f"{melhor_comprador[COLUNA_COMPRADOR]} ({format_brl(melhor_comprador['Vendas_Float'])})"
     )
-    
     resultado_produto = (
         f"{produto_mais_vendido[COLUNA_ITEM_VENDIDO]} ({format_brl(produto_mais_vendido['Vendas_Float'])})"
     )
@@ -198,12 +184,9 @@ def analisar_metricas_negocio(df_vendas_bruto, ano_foco):
 def gerar_tabela_auditoria(df_mensal):
     """Gera o HTML da tabela histórica de Lucro, Vendas e Gastos (COMPLETA)."""
     table_rows = ""
-    # O df_mensal tem Mes_Ano como Datetime, que é o que precisamos para o formato
     for index, row in df_mensal.iterrows():
         lucro = row['Lucro_Liquido']
         lucro_class = 'lucro-positivo-dark' if lucro >= 0 else 'lucro-negativo-dark'
-        
-        # Formata o Mes_Ano para YYYY-MM
         mes_formatado = row['Mes_Ano'].strftime('%Y-%m')
         
         table_rows += f"""
@@ -217,21 +200,17 @@ def gerar_tabela_auditoria(df_mensal):
     return table_rows
 
 def gerar_html_balanco_grafico(df_dados, titulo_secao):
-    """Gera o HTML da tabela de balanço mensal com barras visuais, REUTILIZÁVEL."""
-    
+    """Gera o HTML da tabela de balanço mensal com barras visuais."""
     lucro_html = ""
-    
-    if df_dados.empty:
-        return f"<p>Não há dados de Lucro Mensal para {titulo_secao}.</p>"
+    if df_dados.empty: return f"<p>Não há dados de Lucro Mensal para {titulo_secao}.</p>"
         
     df_dados['Lucro_Abs'] = df_dados['Lucro_Liquido'].abs()
     max_lucro = df_dados['Lucro_Abs'].max()
 
     for index, row in df_dados.iterrows():
         lucro = row['Lucro_Liquido']
-        cor_barra = '#006400' if lucro >= 0 else '#9c0000' # Verde/Vermelho escuro
+        cor_barra = '#006400' if lucro >= 0 else '#9c0000' 
         largura = (row['Lucro_Abs'] / max_lucro) * 100 if max_lucro > 0 else 0 
-        
         mes_formatado = row['Mes_Ano'].strftime('%b/%Y') 
 
         lucro_html += f"""
@@ -264,28 +243,26 @@ def gerar_html_balanco_grafico(df_dados, titulo_secao):
 
 def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_comprador_atual, produto_mais_vendido_atual, melhor_comprador_ant, produto_mais_vendido_ant, ano_ant, ano_atual):
     
-    # Lógica de Classificação do Insight da Previsão
+    # Lógica de Insight da Previsão
     diferenca = previsao - ultimo_valor_real
-    
-    # Cores de box adaptadas ao Dark Mode 
     if previsao < 0:
         insight = f"🚨 **Previsão de PREJUÍZO!** Lucro negativo de {format_brl(abs(previsao))} esperado. Hora de cortar o cafezinho."
-        cor = "#9c0000" # Vermelho escuro
+        cor = "#9c0000" 
     elif diferenca > (ultimo_valor_real * 0.10):
         insight = f"🚀 **Crescimento de Lucro Esperado!** Aumento de {format_brl(diferenca)}. Suas vendas estão no *hype*!"
-        cor = "#006400" # Verde escuro
+        cor = "#006400" 
     elif diferenca < -(ultimo_valor_real * 0.10):
         insight = f"⚠️ **Risco de Queda de Lucro!** Retração de {format_brl(abs(diferenca))} esperada. Analise seus custos ou chame o Batman!"
-        cor = "#b8860b" # Amarelo escuro (Goldenrod)
+        cor = "#b8860b" 
     else:
         insight = f"➡️ **Estabilidade Esperada.** Lucro projetado próximo ao mês passado. Nem frio, nem quente."
-        cor = "#005a8d" # Azul escuro
+        cor = "#005a8d" 
     
     texto_box_cor = "white"
 
     tabela_auditoria_html = gerar_tabela_auditoria(df_historico)
     
-    # --- GOVERNANÇA DE IA: ANÁLISE DO MAE ---
+    # --- GOVERNANÇA DE IA: ANÁLISE DO MAE (O Sargento do Controle) ---
     lucro_liquido_medio = df_historico['Lucro_Liquido'].mean()
     limite_mae = abs(lucro_liquido_medio * TOLERANCIA_MAE_PERCENTUAL)
     
@@ -295,7 +272,7 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
         mae_cor = "red" 
     else:
         mae_status = f"✅ **MAE ACEITÁVEL.** O erro médio está dentro da margem de {format_brl(limite_mae)}. Siga usando, mas monitore!"
-        mae_cor = "#006400" # Verde escuro
+        mae_cor = "#006400" 
     
     # --- GERAÇÃO DOS GRÁFICOS DE BALANÇO ---
     df_balanco_anterior = df_historico[df_historico['Mes_Ano'].dt.year == ano_ant].copy()
@@ -317,7 +294,6 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
             h2 {{ color: #bb86fc; border-bottom: 2px solid #bb86fc; padding-bottom: 10px; }}
             h3 {{ color: #03dac6; margin-top: 25px; }}
             
-            /* Metric Box (Cor baseada na previsão) */
             .metric-box {{ padding: 20px; margin-bottom: 20px; border-radius: 8px; background-color: {cor}; color: {texto_box_cor}; text-align: center; }}
             .metric-box h3 {{ margin-top: 0; font-size: 1.5em; }}
             .metric-box p {{ font-size: 2.5em; font-weight: bold; }}
@@ -328,7 +304,6 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
             th, td {{ padding: 10px; border: 1px solid #333; text-align: left; }}
             th {{ background-color: #3700b3; color: white; }}
             
-            /* Cores de Fundo da Tabela no Dark Mode */
             .lucro-positivo-dark {{ background-color: #1f311f; color: #c7ecc7; }} 
             .lucro-negativo-dark {{ background-color: #3b1f1f; color: #ffbaba; }} 
             
@@ -342,7 +317,7 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
     <body>
         <div class="container">
             <h2>🔮 Insights de Machine Learning e Negócios</h2>
-            <p>Modelo: ARIMA(1, 1, 0) - Adaptação para Séries Temporais. Data: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}. Foco do ML: Previsão de {ano_atual}.</p>
+            <p>Modelo: **ARIMA(1, 1, 0)** - Focado em Séries Temporais. Data: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}. Foco do ML: Previsão de {ano_atual}.</p>
             
             <div class="metric-box">
                 <h3>Lucro Líquido Projetado para o Próximo Mês</h3>
@@ -357,14 +332,13 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
             <div class="info-box" style="border: 1px dashed {mae_cor};">
                 <h4>Métricas de Qualidade (Governança de IA)</h4>
                 <p>Lucro Real Mês Passado: **{format_brl(ultimo_valor_real)}**</p>
-                <p>Erro Absoluto Médio Histórico (MAE): **{format_brl(mae)}**</p>
+                <p>Erro Absoluto Médio Histórico (MAE): **{format_bl(mae)}**</p>
                 <p style="color: {mae_cor}; font-weight: bold;">Status da Governança: {mae_status}</p>
             </div>
             
             <hr style="margin-top: 30px; border-color: #3700b3;">
 
             <h2>🏺 Baú de Memórias - Performance de {ano_ant}</h2>
-            <p>Os resultados de {ano_ant} que serviram de base para treinar seu modelo de ML. A história é escrita por quem vende mais.</p>
             
             <h3>Resumo de KPIs Chave ({ano_ant})</h3>
             <div class="grid-2">
@@ -379,10 +353,11 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
             </div>
             
             <h3>Balanço Mensal Detalhado de Lucro Líquido ({ano_ant})</h3>
-            <p>O gráfico visual do desempenho mês a mês completo do ano passado.</p>
             {html_balanco_anterior}
             
             <hr style="margin-top: 30px; border-color: #3700b3;">
+
+            
             <h2>🏆 Principais Indicadores de Negócio ({ano_atual})</h2>
             <p>Métricas de negócio baseadas nos dados brutos do ano corrente, essenciais para tomada de decisão AGORA.</p>
             <div class="grid-2">
@@ -397,11 +372,10 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
             </div>
 
             <h2>📈 Análise de Lucro Mensal (Foco em {ano_atual})</h2>
-            <p>Visualização da performance de Lucro Líquido no ano corrente. O tamanho da barra indica a magnitude do valor.</p>
             {html_balanco_atual}
             
             <h2>📊 Tabela de Auditoria Histórica (Base do ML)</h2>
-            <p>Estes são os dados consolidados de Vendas e Gastos utilizados para treinar o modelo de previsão. A história completa e sequencial.</p>
+            <p>Estes são os dados consolidados de Vendas e Gastos utilizados para treinar o modelo de previsão.</p>
             <table>
                 <thead>
                     <tr>
@@ -424,7 +398,6 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
     
     with open(OUTPUT_HTML, 'w', encoding='utf-8') as f:
         f.write(html_content)
-    print(f"Dashboard de ML gerado com sucesso: {OUTPUT_HTML}")
 
 
 # --- EXECUÇÃO PRINCIPAL ---
