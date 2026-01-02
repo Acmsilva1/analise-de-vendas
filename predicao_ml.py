@@ -11,16 +11,15 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error
 
 # --- CONFIGURAÇÕES DE DADOS (UNIFICADO E CORRIGIDO) ---
-# ID ÚNICO para a planilha "HISTORICO DE VENDAS E GASTOS"
-ID_PLANILHA_UNICA = "1XWdRbHqY6DWOlSO-oJbBSyOsXmYhM_NEA2_yvWbfq2Y"
+ID_PLANILHA_UNICA = "1XWdRbHqY6DWOlSO-oJbBSyOsXmYhM_NEA2_yvbfq2Y"
 
 ABA_VENDAS = "VENDAS"
 ABA_GASTOS = "GASTOS" 
 
 # Colunas (CORRIGIDAS conforme sua planilha)
 COLUNA_VALOR_VENDA = 'VALOR DA VENDA'
-COLUNA_COMPRADOR = 'DADOS DO COMPRADOR' # Para a métrica de Melhor Comprador (Aba VENDAS)
-COLUNA_ITEM_VENDIDO = 'SABORES'       # Para a métrica de Sabor/Produto Mais Vendido (Aba VENDAS)
+COLUNA_COMPRADOR = 'DADOS DO COMPRADOR' 
+COLUNA_ITEM_VENDIDO = 'SABORES'       
 
 COLUNA_VALOR_GASTO = 'VALOR' 
 COLUNA_DATA = 'DATA E HORA' 
@@ -32,6 +31,7 @@ URL_DASHBOARD = "https://acmsilva1.github.io/analise-de-vendas/dashboard_ml_insi
 def format_brl(value):
     """Função helper para formatar valores em R$"""
     value = float(value)
+    # Formatação BRL: 1.000,00
     return f"R$ {value:,.2f}".replace('.', 'X').replace(',', '.').replace('X', ',')
 
 def autenticar_gspread():
@@ -62,11 +62,12 @@ def carregar_dados_de_planilha(gc, sheet_id, aba_nome, coluna_valor, prefixo):
         df[f'{prefixo}_Float'] = pd.to_numeric(df['temp_valor'], errors='coerce')
         
         # Limpeza da Data
+        # MELHORIA: Capturar erro específico do gspread
         df['Data_Datetime'] = pd.to_datetime(df[COLUNA_DATA], errors='coerce', dayfirst=True)
         
         df_validos = df.dropna(subset=['Data_Datetime', f'{prefixo}_Float']).copy()
         
-        # SE FOR VENDAS, RETORNA O DF BRUTO para permitir as análises de Comprador/Sabor (KPIs de Negócio)
+        # SE FOR VENDAS, RETORNA O DF BRUTO
         if aba_nome == ABA_VENDAS:
              return df_validos
         
@@ -77,12 +78,14 @@ def carregar_dados_de_planilha(gc, sheet_id, aba_nome, coluna_valor, prefixo):
         
         return df_mensal.set_index('Mes_Ano')
         
+    except WorksheetNotFound:
+        print(f"ERRO CRÍTICO: Aba '{aba_nome}' não encontrada na planilha. Verifique o nome.")
+        return pd.DataFrame() # Retorna DF vazio de forma controlada
     except Exception as e:
         print(f"ERRO ao carregar {aba_nome}: {e}")
         return pd.DataFrame()
 
 def carregar_e_combinar_dados(gc):
-    # Usamos ID_PLANILHA_UNICA para ambas as chamadas
     df_vendas_bruto = carregar_dados_de_planilha(gc, ID_PLANILHA_UNICA, ABA_VENDAS, COLUNA_VALOR_VENDA, 'Vendas')
     df_gastos_mensal = carregar_dados_de_planilha(gc, ID_PLANILHA_UNICA, ABA_GASTOS, COLUNA_VALOR_GASTO, 'Gastos')
     
@@ -120,7 +123,6 @@ def treinar_e_prever(df_mensal):
     X = df_mensal[['Mes_Index']] 
     y = df_mensal['Lucro_Liquido'] 
     
-    # A Magia da Regressão Linear 
     modelo = LinearRegression()
     modelo.fit(X, y)
     
@@ -135,22 +137,29 @@ def treinar_e_prever(df_mensal):
     
     return previsao_proximo_mes, mae, ultimo_lucro_real
 
-def analisar_metricas_negocio(df_vendas_bruto):
-    """Calcula o Melhor Comprador e o Sabor Mais Vendido (baseado em receita), usando os nomes corrigidos."""
+def analisar_metricas_negocio(df_vendas_bruto, ano_foco):
+    """
+    Calcula o Melhor Comprador e o Sabor Mais Vendido (baseado em receita),
+    FILTRANDO apenas para o ano de foco.
+    """
+    df_filtrado = df_vendas_bruto[
+        df_vendas_bruto['Data_Datetime'].dt.year == ano_foco
+    ].copy()
+    
+    if df_filtrado.empty:
+        return f"N/A ({ano_foco} sem dados)", f"N/A ({ano_foco} sem dados)"
+        
     # Verifica a existência das colunas CORRIGIDAS
-    if COLUNA_COMPRADOR not in df_vendas_bruto.columns or COLUNA_ITEM_VENDIDO not in df_vendas_bruto.columns:
+    if COLUNA_COMPRADOR not in df_filtrado.columns or COLUNA_ITEM_VENDIDO not in df_filtrado.columns:
         print(f"Alerta: Colunas '{COLUNA_COMPRADOR}' ou '{COLUNA_ITEM_VENDIDO}' não encontradas no DF de Vendas.")
         return "N/A (Colunas de Negócio Faltantes)", "N/A (Colunas de Negócio Faltantes)"
         
     # Melhor Comprador
-    comprador_df = df_vendas_bruto.groupby(COLUNA_COMPRADOR)['Vendas_Float'].sum().reset_index()
-    if comprador_df.empty:
-        return "N/A (Dados vazios)", "N/A (Dados vazios)"
-        
+    comprador_df = df_filtrado.groupby(COLUNA_COMPRADOR)['Vendas_Float'].sum().reset_index()
     melhor_comprador = comprador_df.sort_values(by='Vendas_Float', ascending=False).iloc[0]
     
     # Sabor/Produto Mais Vendido
-    produto_df = df_vendas_bruto.groupby(COLUNA_ITEM_VENDIDO)['Vendas_Float'].sum().reset_index()
+    produto_df = df_filtrado.groupby(COLUNA_ITEM_VENDIDO)['Vendas_Float'].sum().reset_index()
     produto_mais_vendido = produto_df.sort_values(by='Vendas_Float', ascending=False).iloc[0]
 
     # Formata os resultados
@@ -165,16 +174,18 @@ def analisar_metricas_negocio(df_vendas_bruto):
     return resultado_comprador, resultado_produto
 
 def gerar_tabela_auditoria(df_mensal):
-    """Gera o HTML da tabela histórica de Lucro, Vendas e Gastos."""
+    """Gera o HTML da tabela histórica de Lucro, Vendas e Gastos (COMPLETA)."""
     table_rows = ""
     for index, row in df_mensal.iterrows():
         lucro = row['Lucro_Liquido']
-        # Usaremos as classes do Dark Mode aqui
         lucro_class = 'lucro-positivo-dark' if lucro >= 0 else 'lucro-negativo-dark'
+        
+        # Formata o Mes_Ano para YYYY-MM
+        mes_formatado = row['Mes_Ano'].strftime('%Y-%m')
         
         table_rows += f"""
         <tr class="{lucro_class}">
-            <td>{row['Mes_Ano']}</td>
+            <td>{mes_formatado}</td>
             <td>{format_brl(row['Total_Vendas'])}</td>
             <td>{format_brl(row['Total_Gastos'])}</td>
             <td>{format_brl(lucro)}</td>
@@ -182,12 +193,61 @@ def gerar_tabela_auditoria(df_mensal):
         """
     return table_rows
 
-def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_comprador, produto_mais_vendido):
+# --- NOVO: FUNÇÃO REUTILIZÁVEL PARA GERAR O GRÁFICO DE BALANÇO ---
+def gerar_html_balanco_grafico(df_dados, titulo_secao):
+    """Gera o HTML da tabela de balanço mensal com barras visuais."""
+    
+    lucro_html = ""
+    
+    if df_dados.empty:
+        return f"<p>Não há dados de Lucro Mensal para {titulo_secao}.</p>"
+        
+    df_dados['Lucro_Abs'] = df_dados['Lucro_Liquido'].abs()
+    max_lucro = df_dados['Lucro_Abs'].max()
+
+    for index, row in df_dados.iterrows():
+        lucro = row['Lucro_Liquido']
+        cor_barra = '#006400' if lucro >= 0 else '#9c0000' # Verde escuro ou Vermelho escuro
+        largura = (row['Lucro_Abs'] / max_lucro) * 100 if max_lucro > 0 else 0 
+        
+        # Formata o Mês/Ano (ex: Jan/2026)
+        mes_formatado = row['Mes_Ano'].strftime('%b/%Y') 
+
+        lucro_html += f"""
+        <tr>
+            <td>{mes_formatado}</td>
+            <td>
+                <div style="background-color: #2c2c2c; border-radius: 4px; overflow: hidden; height: 20px; text-align: left;">
+                    <div style="width: {largura}%; background-color: {cor_barra}; height: 100%; text-align: right; line-height: 20px; color: white; padding-right: 5px; box-sizing: border-box;">
+                        {format_brl(lucro)}
+                    </div>
+                </div>
+            </td>
+        </tr>
+        """
+        
+    # Estrutura da Tabela
+    html_final = f"""
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 20%;">Mês/Ano</th>
+                <th>Lucro Líquido (Visualização)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {lucro_html}
+        </tbody>
+    </table>
+    """
+    return html_final
+
+def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_comprador_atual, produto_mais_vendido_atual, melhor_comprador_ant, produto_mais_vendido_ant, ano_ant, ano_atual):
     
     # Lógica de Classificação do Insight
     diferenca = previsao - ultimo_valor_real
     
-    # Cores de box adaptadas ao Dark Mode (Background escuro, texto claro)
+    # Cores de box adaptadas ao Dark Mode 
     if previsao < 0:
         insight = f"🚨 **Previsão de PREJUÍZO!** Lucro negativo de {format_brl(abs(previsao))} esperado. Hora de cortar o cafezinho."
         cor = "#9c0000" # Vermelho escuro
@@ -201,36 +261,23 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
         insight = f"➡️ **Estabilidade Esperada.** Lucro projetado próximo ao mês passado. Nem frio, nem quente."
         cor = "#005a8d" # Azul escuro
     
-    # Se a cor do box for muito escura, vamos garantir que o texto dentro seja branco:
     texto_box_cor = "white"
 
     tabela_auditoria_html = gerar_tabela_auditoria(df_historico)
     
-    # Geração da Tabela de Análise Mensal de Lucro (Visualização Gráfica)
-    lucro_anual_html = ""
-    ultimo_ano = df_historico['Mes_Ano'].dt.year.max()
-    df_ano_atual = df_historico[df_historico['Mes_Ano'].dt.year == ultimo_ano].copy()
+    # ----------------------------------------------------------------------
+    # --- GERAÇÃO DOS GRÁFICOS DE BALANÇO (O NOVO FLUXO) ---
+    # ----------------------------------------------------------------------
+
+    # 1. Filtrar o DF para o Baú de Memórias (Ano Anterior)
+    df_balanco_anterior = df_historico[df_historico['Mes_Ano'].dt.year == ano_ant].copy()
+    html_balanco_anterior = gerar_html_balanco_grafico(df_balanco_anterior, f"o Ano de {ano_ant}")
+
+    # 2. Filtrar o DF para o Ano Corrente
+    df_balanco_atual = df_historico[df_historico['Mes_Ano'].dt.year == ano_atual].copy()
+    html_balanco_atual = gerar_html_balanco_grafico(df_balanco_atual, f"o Ano de {ano_atual}")
     
-    df_ano_atual['Lucro_Abs'] = df_ano_atual['Lucro_Liquido'].abs()
-    max_lucro = df_ano_atual['Lucro_Abs'].max()
-
-    for index, row in df_ano_atual.iterrows():
-        lucro = row['Lucro_Liquido']
-        cor_barra = '#006400' if lucro >= 0 else '#9c0000' # Barras verdes escuras ou vermelhas escuras
-        largura = (row['Lucro_Abs'] / max_lucro) * 100 if max_lucro > 0 else 0 
-
-        lucro_anual_html += f"""
-        <tr>
-            <td>{row['Mes_Ano'].strftime('%b/%Y')}</td>
-            <td>
-                <div style="background-color: #2c2c2c; border-radius: 4px; overflow: hidden; height: 20px; text-align: left;">
-                    <div style="width: {largura}%; background-color: {cor_barra}; height: 100%; text-align: right; line-height: 20px; color: white; padding-right: 5px; box-sizing: border-box;">
-                        {format_brl(lucro)}
-                    </div>
-                </div>
-            </td>
-        </tr>
-        """
+    # ----------------------------------------------------------------------
     
     html_content = f"""
     <!DOCTYPE html>
@@ -242,6 +289,7 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
             body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #121212; color: #e0e0e0; }}
             .container {{ max-width: 900px; margin: auto; background: #1e1e1e; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }}
             h2 {{ color: #bb86fc; border-bottom: 2px solid #bb86fc; padding-bottom: 10px; }}
+            h3 {{ color: #03dac6; margin-top: 25px; }}
             
             /* Metric Box (Cor baseada na previsão) */
             .metric-box {{ padding: 20px; margin-bottom: 20px; border-radius: 8px; background-color: {cor}; color: {texto_box_cor}; text-align: center; }}
@@ -270,10 +318,10 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
     <body>
         <div class="container">
             <h2>🔮 Insights de Machine Learning e Negócios</h2>
-            <p>Modelo: Regressão Linear Simples. Data: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}</p>
+            <p>Modelo: Regressão Linear Simples. Data: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}. Foco do ML: Previsão de {ano_atual}.</p>
             
             <div class="metric-box">
-                <h3>Lucro Líquido Projetado para o Próximo Mês</h3>
+                <h3>Lucro Líquido Projetado para o Próximo Mês ({datetime.now().strftime('%b/%Y')})</h3>
                 <p>{format_brl(previsao)}</p>
             </div>
             
@@ -289,35 +337,47 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
                 <p>A governança de IA exige que você monitore o MAE: quanto menor, melhor a previsão histórica. </p>
             </div>
             
-            <h2>🏆 Principais Indicadores de Negócio</h2>
-            <p>Métricas de negócio baseadas nos dados brutos da aba VENDAS.</p>
+            <h2>🏆 Principais Indicadores de Negócio ({ano_atual})</h2>
+            <p>Métricas de negócio baseadas nos dados brutos do ano corrente, essenciais para tomada de decisão AGORA.</p>
             <div class="grid-2">
                  <div class="metric-card">
                     <h4>Melhor Comprador (Receita Gerada)</h4>
-                    <p>{melhor_comprador}</p>
+                    <p>{melhor_comprador_atual}</p>
                 </div>
                  <div class="metric-card">
                     <h4>Sabor Mais Vendido (Receita Gerada)</h4>
-                    <p>{produto_mais_vendido}</p>
+                    <p>{produto_mais_vendido_atual}</p>
                 </div>
             </div>
 
-            <h2>📈 Análise de Lucro Mensal (Último Ano)</h2>
-            <p>Visualização da performance de Lucro Líquido ao longo dos meses. O tamanho da barra indica a magnitude do valor.</p>
-            <table>
-                <thead>
-                    <tr>
-                        <th style="width: 20%;">Mês/Ano</th>
-                        <th>Lucro Líquido (Visualização)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {lucro_anual_html}
-                </tbody>
-            </table>
+            <hr style="margin-top: 30px; border-color: #3700b3;">
+
+            <h2>🏺 Baú de Memórias - Performance de {ano_ant}</h2>
+            <p>Os resultados de {ano_ant} que serviram de base para treinar seu modelo de ML. A história é escrita por quem vende mais.</p>
+            
+            <h3>Resumo de KPIs Chave ({ano_ant})</h3>
+            <div class="grid-2">
+                 <div class="metric-card">
+                    <h4>Melhor Comprador Histórico ({ano_ant})</h4>
+                    <p>{melhor_comprador_ant}</p>
+                </div>
+                 <div class="metric-card">
+                    <h4>Sabor Mais Vendido Histórico ({ano_ant})</h4>
+                    <p>{produto_mais_vendido_ant}</p>
+                </div>
+            </div>
+            
+            <h3>Balanço Mensal Detalhado de Lucro Líquido ({ano_ant})</h3>
+            <p>O gráfico visual do desempenho mês a mês completo do ano passado.</p>
+            {html_balanco_anterior}
+            
+            <hr style="margin-top: 30px; border-color: #3700b3;">
+            <h2>📈 Análise de Lucro Mensal (Foco em {ano_atual})</h2>
+            <p>Visualização da performance de Lucro Líquido no ano corrente. O tamanho da barra indica a magnitude do valor.</p>
+            {html_balanco_atual}
             
             <h2>📊 Tabela de Auditoria Histórica (Base do ML)</h2>
-            <p>Estes são os dados consolidados de Vendas e Gastos utilizados para treinar o modelo de previsão.</p>
+            <p>Estes são os dados consolidados de Vendas e Gastos utilizados para treinar o modelo de previsão. A história completa e sequencial.</p>
             <table>
                 <thead>
                     <tr>
@@ -348,23 +408,34 @@ if __name__ == "__main__":
     try:
         gc = autenticar_gspread()
         
-        # O retorno AGORA É DUPLO: df_mensal (consolidado) e df_vendas_bruto (para métricas)
         df_mensal, df_vendas_bruto = carregar_e_combinar_dados(gc) 
         
         if not df_mensal.empty:
+            
+            # Identificação dos Anos
+            ano_atual = df_vendas_bruto['Data_Datetime'].dt.year.max()
+            ano_ant = ano_atual - 1 
+
             previsao, mae, ultimo_lucro_real = treinar_e_prever(df_mensal)
             
-            # NOVO: Calcular Métricas de Negócio (com colunas corrigidas)
-            melhor_comprador, produto_mais_vendido = analisar_metricas_negocio(df_vendas_bruto)
+            # KPI 1: Métricas de Negócio (Ano Corrente - 2026)
+            melhor_comprador_atual, produto_mais_vendido_atual = analisar_metricas_negocio(df_vendas_bruto, ano_atual)
             
-            # Passando todos os argumentos
+            # KPI 2: NOVO - Métricas de Negócio (Ano Anterior - 2025) - O BAÚ DE MEMÓRIAS!
+            melhor_comprador_ant, produto_mais_vendido_ant = analisar_metricas_negocio(df_vendas_bruto, ano_ant)
+
+            # Passando todos os argumentos para o dashboard
             montar_dashboard_ml(
                 previsao, 
                 mae, 
                 ultimo_lucro_real, 
                 df_mensal,
-                melhor_comprador,
-                produto_mais_vendido
+                melhor_comprador_atual,
+                produto_mais_vendido_atual,
+                melhor_comprador_ant,
+                produto_mais_vendido_ant,
+                ano_ant,
+                ano_atual
             )
         else:
             print("Execução ML interrompida por falta de dados históricos.")
