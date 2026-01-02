@@ -7,8 +7,9 @@ import json
 from gspread.exceptions import WorksheetNotFound, APIError 
 
 # --- Adicionando as bibliotecas de Machine Learning ---
-from sklearn.linear_model import LinearRegression 
-from sklearn.metrics import mean_absolute_error
+# Agora usaremos o statsmodels para ARIMA
+from statsmodels.tsa.arima.model import ARIMA # <--- NOVO
+from sklearn.metrics import mean_absolute_error # Mantemos o MAE da sklearn para métrica
 
 # --- CONFIGURAÇÕES DE DADOS E GOVERNANÇA (TOLERÂNCIA DE ERRO) ---
 ID_PLANILHA_UNICA = "1XWdRbHqY6DWOlSO-oJbBSyOsXmYhM_NEA2_yvWbfq2Y"
@@ -27,8 +28,7 @@ COLUNA_DATA = 'DATA E HORA'
 OUTPUT_HTML = "dashboard_ml_insights.html"
 URL_DASHBOARD = "https://acmsilva1.github.io/analise-de-vendas/dashboard_ml_insights.html" 
 
-# NOVO: LIMITE DE GOVERNANÇA DE IA - 
-# Se o Erro Absoluto Médio (MAE) for maior que 15% do Lucro Médio Histórico, o modelo é questionável.
+# LIMITE DE GOVERNANÇA DE IA - 
 TOLERANCIA_MAE_PERCENTUAL = 0.15 
 # --------------------------------------------------------------------------------
 
@@ -47,7 +47,6 @@ def autenticar_gspread():
 def carregar_dados_de_planilha(gc, sheet_id, aba_nome, coluna_valor, prefixo):
     """
     Carrega os dados da aba. Retorna o DF Bruto para VENDAS ou o DF Agrupado Mensal para GASTOS.
-    Inclui tratamento de erro WorksheetNotFound.
     """
     print(f"DEBUG: Carregando dados: ID={sheet_id}, Aba={aba_nome}")
     try:
@@ -110,8 +109,11 @@ def carregar_e_combinar_dados(gc):
 
     df_combinado['Lucro_Liquido'] = df_combinado['Total_Vendas'] - df_combinado['Total_Gastos']
     
-    df_combinado = df_combinado.sort_index().reset_index()
-    df_combinado['Mes_Index'] = np.arange(len(df_combinado))
+    # Prepara o índice para o ARIMA: PeriodIndex é convertido para DatetimeIndex
+    df_combinado = df_combinado.sort_index()
+    df_combinado['Mes_Ano'] = df_combinado.index.to_timestamp(freq='M') # Cria a coluna com a data final do mês
+
+    df_combinado = df_combinado.reset_index(drop=True)
     
     if len(df_combinado) < 4:
         raise ValueError(f"Dados insuficientes para ML: Apenas {len(df_combinado)} meses consolidados. Mínimo de 4 meses é recomendado.")
@@ -119,27 +121,47 @@ def carregar_e_combinar_dados(gc):
     return df_combinado, df_vendas_bruto
 
 def treinar_e_prever(df_mensal):
-    X = df_mensal[['Mes_Index']] 
-    y = df_mensal['Lucro_Liquido'] 
+    """
+    Treina o modelo ARIMA(1, 1, 0) (em vez de Regressão Linear) e faz a previsão.
+    """
+    # 1. Configurar Série Temporal (Indexada pelo tempo)
+    ts = df_mensal.set_index('Mes_Ano')['Lucro_Liquido']
     
-    modelo = LinearRegression()
-    modelo.fit(X, y)
+    # 2. Treinar o Modelo ARIMA(1, 1, 0)
+    # Por ter apenas 6 pontos, usamos ARIMA em vez de SARIMA (sem sazonalidade S=12)
+    print("DEBUG: Treinando modelo ARIMA(1, 1, 0)...")
+    try:
+        modelo = ARIMA(ts, order=(1, 1, 0))
+        modelo_fit = modelo.fit()
+    except Exception as e:
+        print(f"ALERTA: Falha ao treinar ARIMA. Tentando ARIMA(0, 1, 0) - Random Walk. Erro: {e}")
+        # Tenta um modelo mais simples em caso de erro (modelo Random Walk)
+        modelo = ARIMA(ts, order=(0, 1, 0))
+        modelo_fit = modelo.fit()
+
+    # 3. Previsão para o Próximo Mês (1 passo à frente)
+    forecast_result = modelo_fit.get_forecast(steps=1)
+    previsao_proximo_mes = forecast_result.predicted_mean.iloc[0]
+
+    # 4. Cálculo do MAE (usando a previsão histórica)
+    # A previsão começa no segundo ponto (d=1) e termina no último ponto (para calcular o erro in-sample)
+    predicoes_historicas = modelo_fit.predict(start=ts.index[1], end=ts.index[-1], dynamic=False)
     
-    proximo_mes_index = df_mensal['Mes_Index'].max() + 1
-    previsao_proximo_mes = modelo.predict([[proximo_mes_index]])[0]
-
-    # Métrica de Governança de IA: MAE
-    predicoes_historicas = modelo.predict(X)
-    mae = mean_absolute_error(y, predicoes_historicas)
-
-    ultimo_lucro_real = df_mensal['Lucro_Liquido'].iloc[-1]
+    y_real = ts.loc[predicoes_historicas.index] # Garante que os índices coincidam
+    mae = mean_absolute_error(y_real, predicoes_historicas)
+    
+    ultimo_lucro_real = ts.iloc[-1]
     
     return previsao_proximo_mes, mae, ultimo_lucro_real
+
+# (As funções analisar_metricas_negocio, gerar_tabela_auditoria, gerar_html_balanco_grafico e montar_dashboard_ml
+# permanecem inalteradas, pois o fluxo de dados e a geração de HTML são os mesmos.
+# Apenas a lógica de ML foi alterada.)
 
 def analisar_metricas_negocio(df_vendas_bruto, ano_foco):
     """
     Calcula o Melhor Comprador e o Sabor Mais Vendido (baseado em receita),
-    FILTRANDO apenas para o ano de foco. (CORREÇÃO DE FLUXO)
+    FILTRANDO apenas para o ano de foco.
     """
     df_filtrado = df_vendas_bruto[
         df_vendas_bruto['Data_Datetime'].dt.year == ano_foco
@@ -176,6 +198,7 @@ def analisar_metricas_negocio(df_vendas_bruto, ano_foco):
 def gerar_tabela_auditoria(df_mensal):
     """Gera o HTML da tabela histórica de Lucro, Vendas e Gastos (COMPLETA)."""
     table_rows = ""
+    # O df_mensal tem Mes_Ano como Datetime, que é o que precisamos para o formato
     for index, row in df_mensal.iterrows():
         lucro = row['Lucro_Liquido']
         lucro_class = 'lucro-positivo-dark' if lucro >= 0 else 'lucro-negativo-dark'
@@ -262,7 +285,7 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
 
     tabela_auditoria_html = gerar_tabela_auditoria(df_historico)
     
-    # --- GOVERNANÇA DE IA: ANÁLISE DO MAE (O NOVO SARGENTO DO CONTROLE) ---
+    # --- GOVERNANÇA DE IA: ANÁLISE DO MAE ---
     lucro_liquido_medio = df_historico['Lucro_Liquido'].mean()
     limite_mae = abs(lucro_liquido_medio * TOLERANCIA_MAE_PERCENTUAL)
     
@@ -319,7 +342,7 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
     <body>
         <div class="container">
             <h2>🔮 Insights de Machine Learning e Negócios</h2>
-            <p>Modelo: Regressão Linear Simples. Data: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}. Foco do ML: Previsão de {ano_atual}.</p>
+            <p>Modelo: ARIMA(1, 1, 0) - Adaptação para Séries Temporais. Data: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}. Foco do ML: Previsão de {ano_atual}.</p>
             
             <div class="metric-box">
                 <h3>Lucro Líquido Projetado para o Próximo Mês</h3>
