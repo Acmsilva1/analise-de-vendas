@@ -7,10 +7,7 @@ import json
 from gspread.exceptions import WorksheetNotFound, APIError 
 
 # --- Adicionando as bibliotecas de Machine Learning ---
-# Importação para o modelo ARIMA (mantido para fallback)
-from statsmodels.tsa.arima.model import ARIMA 
-# NOVA IMPORTAÇÃO: SARIMAX para modelos com sazonalidade (mais poder de fogo)
-from statsmodels.tsa.statespace.sarimax import SARIMAX 
+# Removemos ARIMA/SARIMAX, mas mantemos o scikit-learn para o cálculo do MAE
 from sklearn.metrics import mean_absolute_error 
 
 # --- CONFIGURAÇÕES DE DADOS E GOVERNANÇA (TOLERÂNCIA DE ERRO) ---
@@ -109,50 +106,35 @@ def carregar_e_combinar_dados(gc):
 
     df_combinado['Lucro_Liquido'] = df_combinado['Total_Vendas'] - df_combinado['Total_Gastos']
     
-    # Prepara o índice para o ARIMA/SARIMA: PeriodIndex é convertido para DatetimeIndex
+    # Prepara o índice (necessário para a lógica de MAE)
     df_combinado = df_combinado.sort_index()
     df_combinado['Mes_Ano'] = df_combinado.index.to_timestamp(freq='M') 
 
     df_combinado = df_combinado.reset_index(drop=True)
     
-    if len(df_combinado) < 4:
-        raise ValueError(f"Dados insuficientes para ML: Apenas {len(df_combinado)} meses consolidados. Mínimo de 4 meses é recomendado.")
+    if len(df_combinado) < 2: # Mínimo 2 meses para ter uma previsão Naive e cálculo de MAE
+        raise ValueError(f"Dados insuficientes para ML: Apenas {len(df_combinado)} meses consolidados. Mínimo de 2 meses é recomendado para o Modelo Naive.")
             
     return df_combinado, df_vendas_bruto
 
 def treinar_e_prever(df_mensal):
     """
-    Treina o modelo SARIMA(1, 1, 0)(1, 0, 0, 12) e faz a previsão.
+    Treina o Modelo NAIVE (Previsão da Última Observação).
+    Ideal para séries temporais com poucos dados, estabelecendo um MAE BASELINE.
     """
-    # 1. Configurar Série Temporal (Indexada pelo tempo)
     ts = df_mensal.set_index('Mes_Ano')['Lucro_Liquido']
     
-    # 2. Treinar o Modelo SARIMA Sazonal (Mais Poderoso para tentar reduzir o MAE)
-    try:
-        modelo = SARIMAX(
-            ts, 
-            order=(1, 1, 0),
-            seasonal_order=(1, 0, 0, 12), # Sazonalidade de 12 meses
-            enforce_stationarity=False, 
-            enforce_invertibility=False
-        )
-        modelo_fit = modelo.fit(disp=False) 
-    except Exception as e:
-        print(f"ALERTA SARIMA: {e}")
-        # Fallback se o SARIMA falhar (usando ARIMA simples)
-        print("SARIMA falhou. Revertendo para ARIMA(0, 1, 0) - Random Walk.")
-        modelo = ARIMA(ts, order=(0, 1, 0))
-        modelo_fit = modelo.fit()
+    # 1. PREVISÃO: A previsão do próximo mês é o valor do último mês.
+    previsao_proximo_mes = ts.iloc[-1] 
 
-    # 3. Previsão para o Próximo Mês (1 passo à frente)
-    forecast_result = modelo_fit.get_forecast(steps=1)
-    previsao_proximo_mes = forecast_result.predicted_mean.iloc[0]
-
-    # 4. Cálculo do MAE (usando a previsão histórica)
-    predicoes_historicas = modelo_fit.predict(start=ts.index[1], end=ts.index[-1], dynamic=False)
+    # 2. CÁLCULO DO MAE HISTÓRICO (Baseline Naive)
+    # A previsão histórica (predicoes_historicas) é o valor do mês anterior (shift(1)).
+    predicoes_historicas_naive = ts.shift(1).dropna()
     
-    y_real = ts.loc[predicoes_historicas.index]
-    mae = mean_absolute_error(y_real, predicoes_historicas)
+    # y_real são os valores reais correspondentes (após remover o primeiro NaN do shift)
+    y_real = ts.loc[predicoes_historicas_naive.index]
+
+    mae = mean_absolute_error(y_real, predicoes_historicas_naive)
     
     ultimo_lucro_real = ts.iloc[-1]
     
@@ -325,7 +307,7 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
     <body>
         <div class="container">
             <h2>🔮 Insights de Machine Learning e Negócios</h2>
-            <p>Modelo: **SARIMA(1, 1, 0)(1, 0, 0, 12)** - Focado em Sazonalidade. Data: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}. Foco do ML: Previsão de {ano_atual}.</p>
+            <p>Modelo: **NAIVE (Última Observação)** - Focado em Estabilidade. Data: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}. Foco do ML: Previsão de {ano_atual}.</p>
             
             <div class="metric-box">
                 <h3>Lucro Líquido Projetado para o Próximo Mês</h3>
