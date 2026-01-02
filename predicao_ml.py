@@ -7,7 +7,10 @@ import json
 from gspread.exceptions import WorksheetNotFound, APIError 
 
 # --- Adicionando as bibliotecas de Machine Learning ---
+# Importação para o modelo ARIMA (mantido para fallback)
 from statsmodels.tsa.arima.model import ARIMA 
+# NOVA IMPORTAÇÃO: SARIMAX para modelos com sazonalidade (mais poder de fogo)
+from statsmodels.tsa.statespace.sarimax import SARIMAX 
 from sklearn.metrics import mean_absolute_error 
 
 # --- CONFIGURAÇÕES DE DADOS E GOVERNANÇA (TOLERÂNCIA DE ERRO) ---
@@ -106,7 +109,7 @@ def carregar_e_combinar_dados(gc):
 
     df_combinado['Lucro_Liquido'] = df_combinado['Total_Vendas'] - df_combinado['Total_Gastos']
     
-    # Prepara o índice para o ARIMA: PeriodIndex é convertido para DatetimeIndex
+    # Prepara o índice para o ARIMA/SARIMA: PeriodIndex é convertido para DatetimeIndex
     df_combinado = df_combinado.sort_index()
     df_combinado['Mes_Ano'] = df_combinado.index.to_timestamp(freq='M') 
 
@@ -119,17 +122,25 @@ def carregar_e_combinar_dados(gc):
 
 def treinar_e_prever(df_mensal):
     """
-    Treina o modelo ARIMA(1, 1, 0) e faz a previsão.
+    Treina o modelo SARIMA(1, 1, 0)(1, 0, 0, 12) e faz a previsão.
     """
     # 1. Configurar Série Temporal (Indexada pelo tempo)
     ts = df_mensal.set_index('Mes_Ano')['Lucro_Liquido']
     
-    # 2. Treinar o Modelo ARIMA(1, 1, 0)
+    # 2. Treinar o Modelo SARIMA Sazonal (Mais Poderoso para tentar reduzir o MAE)
     try:
-        modelo = ARIMA(ts, order=(1, 1, 0))
-        modelo_fit = modelo.fit()
-    except Exception:
-        # Tenta um modelo mais simples (Random Walk) em caso de erro.
+        modelo = SARIMAX(
+            ts, 
+            order=(1, 1, 0),
+            seasonal_order=(1, 0, 0, 12), # Sazonalidade de 12 meses
+            enforce_stationarity=False, 
+            enforce_invertibility=False
+        )
+        modelo_fit = modelo.fit(disp=False) 
+    except Exception as e:
+        print(f"ALERTA SARIMA: {e}")
+        # Fallback se o SARIMA falhar (usando ARIMA simples)
+        print("SARIMA falhou. Revertendo para ARIMA(0, 1, 0) - Random Walk.")
         modelo = ARIMA(ts, order=(0, 1, 0))
         modelo_fit = modelo.fit()
 
@@ -314,7 +325,7 @@ def montar_dashboard_ml(previsao, mae, ultimo_valor_real, df_historico, melhor_c
     <body>
         <div class="container">
             <h2>🔮 Insights de Machine Learning e Negócios</h2>
-            <p>Modelo: **ARIMA(1, 1, 0)** - Focado em Séries Temporais. Data: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}. Foco do ML: Previsão de {ano_atual}.</p>
+            <p>Modelo: **SARIMA(1, 1, 0)(1, 0, 0, 12)** - Focado em Sazonalidade. Data: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}. Foco do ML: Previsão de {ano_atual}.</p>
             
             <div class="metric-box">
                 <h3>Lucro Líquido Projetado para o Próximo Mês</h3>
